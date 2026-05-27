@@ -20,11 +20,42 @@ builds:
       - -s -w -X main.version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  - id: amatled-darwin
+    binary: amatled
+    main: ./cmd/amatled
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+  - id: amatled-windows
+    binary: amatled
+    main: ./cmd/amatled
+    goos: [windows]
+    goarch: [amd64]
+    env:
+      - CGO_ENABLED=1
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 archives:
-  - id: amatled-archive
-    builds: [amatled-linux]
+  - id: amatled-archive-unix
+    builds: [amatled-linux, amatled-darwin]
     name_template: "amatled_{{.Version}}_{{.Os}}_{{.Arch}}"
     format: tar.gz
+
+  - id: amatled-archive-windows
+    builds: [amatled-windows]
+    name_template: "amatled_{{.Version}}_{{.Os}}_{{.Arch}}"
+    format: zip
 
 checksum:
   name_template: "checksums.txt"
