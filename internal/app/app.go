@@ -16,19 +16,21 @@ import (
 
 // App orchestre le lifecycle de l'application.
 type App struct {
-	bridge  *Bridge
-	version string
+	bridge           *Bridge
+	version          string
+	initialWorkspace string
 }
 
-func New(version string) *App {
+func New(version, initialWorkspace string) *App {
 	s, err := settings.Load()
 	if err != nil {
 		slog.Warn("failed to load settings", "err", err)
 		s = &settings.Settings{}
 	}
 	return &App{
-		bridge:  newBridge(s, version),
-		version: version,
+		bridge:           newBridge(s, version),
+		version:          version,
+		initialWorkspace: initialWorkspace,
 	}
 }
 
@@ -75,14 +77,18 @@ func (a *App) Run(webFS embed.FS) error {
 		}()
 	}
 
-	// Si un workspace était ouvert lors de la dernière session, le rouvrir.
-	if a.bridge.settings.LastWorkspace != "" {
+	// Ouvre le workspace initial (argument CLI) ou restaure le dernier workspace connu.
+	workspaceToOpen := a.initialWorkspace
+	if workspaceToOpen == "" {
+		workspaceToOpen = a.bridge.settings.LastWorkspace
+	}
+	if workspaceToOpen != "" {
 		go func() {
 			result, err := a.bridge.handleOpenWorkspace(
-				fmt.Sprintf(`{"path":%q}`, a.bridge.settings.LastWorkspace),
+				fmt.Sprintf(`{"path":%q}`, workspaceToOpen),
 			)
 			if err != nil {
-				slog.Warn("failed to restore last workspace", "err", err)
+				slog.Warn("failed to open workspace", "path", workspaceToOpen, "err", err)
 				return
 			}
 			a.bridge.Emit("workspace.opened", result)

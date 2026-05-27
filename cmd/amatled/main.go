@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"os"
@@ -21,11 +22,20 @@ func main() {
 	}
 
 	application := &cli.App{
-		Name:    "amatled",
-		Usage:   "Éditeur Markdown desktop assisté par IA",
-		Version: version,
+		Name:      "amatled",
+		Usage:     "Éditeur Markdown desktop assisté par IA",
+		ArgsUsage: "[répertoire]",
+		Version:   version,
 		Action: func(ctx *cli.Context) error {
-			return app.New(version).Run(amatled.WebFS)
+			dir := ctx.Args().First()
+			if dir == "" {
+				dir = "."
+			}
+			abs, err := filepath.Abs(dir)
+			if err != nil {
+				return fmt.Errorf("chemin invalide : %w", err)
+			}
+			return app.New(version, abs).Run(amatled.WebFS)
 		},
 	}
 
