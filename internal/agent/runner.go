@@ -13,6 +13,7 @@ import (
 	"github.com/bornholm/amatled/internal/format"
 	"github.com/bornholm/amatled/internal/history"
 	"github.com/bornholm/amatled/internal/settings"
+	"github.com/bornholm/amatled/internal/workspace"
 	genaiagent "github.com/bornholm/genai/agent"
 	"github.com/bornholm/genai/agent/loop"
 	"github.com/bornholm/genai/llm"
@@ -25,12 +26,14 @@ import (
 
 // Runner exécute l'agent IA sur une session d'édition.
 type Runner struct {
-	settings *settings.Settings
+	settings  *settings.Settings
+	workspace *workspace.Workspace
 }
 
 // NewRunner crée un Runner à partir des settings courants.
-func NewRunner(s *settings.Settings) *Runner {
-	return &Runner{settings: s}
+// ws peut être nil si aucun workspace n'est ouvert.
+func NewRunner(s *settings.Settings, ws *workspace.Workspace) *Runner {
+	return &Runner{settings: s, workspace: ws}
 }
 
 // Run démarre l'agent pour un message utilisateur donné et émet les événements au fil de l'eau.
@@ -49,14 +52,21 @@ func (r *Runner) Run(
 
 	agentTools := r.buildTools()
 
+	// Construction de l'index workspace (fraîcheur garantie à chaque run)
+	var wsIdx *document.WorkspaceIndex
+	if r.workspace != nil {
+		wsIdx, _ = document.BuildWorkspaceIndex(r.workspace)
+	}
+
 	// Contexte de session pour les outils
 	sc := &tools.SessionContext{
 		Session:   sess,
 		AIMessage: aiMsgID,
+		Workspace: r.workspace,
 	}
 	toolCtx := tools.WithSessionContext(ctx, sc)
 
-	systemPrompt := buildSystemPrompt(sess)
+	systemPrompt := buildSystemPrompt(sess, wsIdx)
 
 	maxIter := r.settings.LLM.MaxIterations
 	if maxIter <= 0 {
@@ -82,8 +92,27 @@ func (r *Runner) Run(
 	agentRunner := genaiagent.NewRunner(handler)
 	input := genaiagent.NewInput(userMsg)
 
-	// On wrap l'emit pour injecter le contexte de session dans le ctx des tools
-	if err := agentRunner.Run(toolCtx, input, emit); err != nil {
+	// On wrap l'emit pour détecter un complete vide après des appels d'outils
+	// et déclencher un appel LLM de synthèse dans ce cas.
+	var hadToolCalls bool
+	safeEmit := func(ev genaiagent.Event) error {
+		if ev.Type() == genaiagent.EventTypeToolCallStart {
+			hadToolCalls = true
+		}
+		if ev.Type() == genaiagent.EventTypeComplete && hadToolCalls {
+			data, _ := ev.Data().(*genaiagent.CompleteData)
+			if data != nil && data.Message == "" {
+				summary := requestCompletionSummary(ctx, client, userMsg)
+				if summary != "" {
+					_ = emit(genaiagent.NewEvent(genaiagent.EventTypeTextDelta, &genaiagent.TextDeltaData{Delta: summary}))
+					return emit(genaiagent.NewEvent(genaiagent.EventTypeComplete, &genaiagent.CompleteData{Message: summary}))
+				}
+			}
+		}
+		return emit(ev)
+	}
+
+	if err := agentRunner.Run(toolCtx, input, safeEmit); err != nil {
 		return err
 	}
 
@@ -166,11 +195,13 @@ func (r *Runner) buildTools() []llm.Tool {
 		tools.NewInsertAfterSectionTool(),
 		tools.NewListSectionsTool(),
 		tools.NewGetSectionByTitleTool(),
+		tools.NewListWorkspaceSectionsTool(),
+		tools.NewReadWorkspaceSectionTool(),
 	}
 }
 
-// buildSystemPrompt construit le prompt système avec ToC et section active.
-func buildSystemPrompt(sess *editor.Session) string {
+// buildSystemPrompt construit le prompt système avec ToC, section active et index workspace.
+func buildSystemPrompt(sess *editor.Session, wsIdx *document.WorkspaceIndex) string {
 	content := sess.Content()
 	toc := generateTOC(content)
 
@@ -179,7 +210,7 @@ func buildSystemPrompt(sess *editor.Session) string {
 
 Fichier actif : `)
 	sb.WriteString(sess.FileID)
-	sb.WriteString("\n\nTable des matières du document :\n")
+	sb.WriteString("\n\nTable des matières du document actif :\n")
 	sb.WriteString(toc)
 
 	section := sess.ActiveSection()
@@ -193,11 +224,22 @@ Fichier actif : `)
 		sb.WriteString("\n\nAucune section spécifique n'est sélectionnée. Tu peux lire et modifier n'importe quelle partie du document.")
 	}
 
+	if wsIdx != nil && len(wsIdx.Files) > 0 {
+		sb.WriteString(fmt.Sprintf("\n\nWorkspace (%d fichier(s) disponible(s)) :\n", len(wsIdx.Files)))
+		sb.WriteString(document.FormatWorkspaceIndex(wsIdx))
+		sb.WriteString("\nUtilise list_workspace_sections pour voir le détail complet, puis read_workspace_section pour lire une section précise d'un autre fichier.")
+	}
+
 	sb.WriteString(`
 
 Tu disposes d'outils pour lire et modifier le document. Utilise-les avec précision en préservant la structure Markdown, le ton et le style d'écriture existants.
 Lorsque tu modifies du contenu, conserve le même niveau de heading de la section originale.
-Réponds en français sauf si l'utilisateur écrit dans une autre langue.`)
+Réponds en français sauf si l'utilisateur écrit dans une autre langue.
+
+RÈGLES IMPÉRATIVES :
+- Agis directement et de façon autonome. Ne demande JAMAIS de confirmation avant d'effectuer les modifications demandées.
+- Après avoir utilisé des outils, produis TOUJOURS un message final non vide résumant ce que tu as fait.
+- Ne propose jamais de plan à valider : exécute immédiatement ce qui est demandé.`)
 
 	return sb.String()
 }
@@ -237,6 +279,24 @@ func (r *Runner) TestConnection(ctx context.Context) error {
 		llm.WithMessages(llm.NewMessage(llm.RoleUser, "ping")),
 	)
 	return err
+}
+
+// requestCompletionSummary fait un appel LLM direct (sans boucle d'outils) pour obtenir
+// un résumé en 1-2 phrases de ce que l'agent vient d'effectuer. Utilisé uniquement
+// quand la boucle se termine avec un message vide après des appels d'outils.
+func requestCompletionSummary(ctx context.Context, client llm.ChatCompletionClient, userMsg string) string {
+	messages := []llm.Message{
+		llm.NewMessage(llm.RoleSystem, "Tu es un assistant d'édition. Réponds en français, en 1 à 2 phrases concises."),
+		llm.NewMessage(llm.RoleUser, fmt.Sprintf(
+			"J'ai demandé : « %s ». Tu as effectué les modifications demandées dans le document. Résume brièvement ce que tu as fait.",
+			userMsg,
+		)),
+	}
+	res, err := client.ChatCompletion(ctx, llm.WithMessages(messages...))
+	if err != nil || res.Message() == nil {
+		return ""
+	}
+	return res.Message().Content()
 }
 
 // SectionRef est un alias local pour éviter l'import circulaire dans les helpers.

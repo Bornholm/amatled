@@ -565,7 +565,7 @@ func (b *Bridge) handleChatSendMessage(paramsJSON string) (any, error) {
 	b.agentRunning = true
 	b.agentMu.Unlock()
 
-	runner := agentkpkg.NewRunner(b.settings)
+	runner := agentkpkg.NewRunner(b.settings, b.workspace)
 
 	go func() {
 		defer func() {
@@ -683,7 +683,7 @@ func (b *Bridge) handleTestLLMConnection(_ string) (any, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := agentkpkg.NewRunner(b.settings)
+	runner := agentkpkg.NewRunner(b.settings, b.workspace)
 	if err := runner.TestConnection(ctx); err != nil {
 		return nil, fmt.Errorf("connexion échouée : %w", err)
 	}

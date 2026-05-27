@@ -205,6 +205,7 @@ export class Chat {
   }
 
   private addToolCall(id: string, name: string): void {
+    if (name === "TodoWrite" || name === "TodoRead") return;
     const msg = this.currentAssistantMsg();
     if (!msg) return;
     msg.toolCalls = msg.toolCalls ?? [];
@@ -254,32 +255,19 @@ export class Chat {
     el.className = `chat-message chat-message--${msg.role}`;
     if (msg.isError) el.classList.add("chat-message--error");
 
-    // Bulle principale de texte
-    const bubble = document.createElement("div");
-    bubble.className = "chat-bubble";
-    if (msg.isStreaming && msg.content === "" && !msg.toolCalls?.length) {
-      bubble.innerHTML = '<div class="chat-thinking"><span></span><span></span><span></span></div>';
-    } else if (msg.isStreaming) {
-      bubble.textContent = msg.content;
-      bubble.appendChild(document.createElement("span")).className = "chat-cursor";
-    } else {
-      bubble.textContent = msg.content;
-    }
-    el.appendChild(bubble);
+    const hasTools = msg.toolCalls && msg.toolCalls.length > 0;
 
-    // Appels d'outils
-    if (msg.toolCalls && msg.toolCalls.length > 0) {
+    // Appels d'outils — affichés en premier (ordre chronologique réel)
+    if (hasTools) {
       const toolsEl = document.createElement("div");
       toolsEl.className = "chat-tools";
-      for (const tc of msg.toolCalls) {
+      for (const tc of msg.toolCalls!) {
         const tcEl = document.createElement("details");
         tcEl.className = "chat-tool-call";
         if (tc.done) tcEl.classList.add("chat-tool-call--done");
 
         const summary = document.createElement("summary");
-        summary.textContent = tc.done
-          ? `✓ ${tc.name}`
-          : `⟳ ${tc.name}…`;
+        summary.textContent = tc.done ? `✓ ${tc.name}` : `⟳ ${tc.name}…`;
         tcEl.appendChild(summary);
 
         if (tc.result) {
@@ -291,6 +279,23 @@ export class Chat {
         toolsEl.appendChild(tcEl);
       }
       el.appendChild(toolsEl);
+    }
+
+    // Bulle de texte — les points de réflexion s'affichent dès que le contenu est vide (streaming)
+    const showThinking = msg.isStreaming && msg.content === "";
+    const showBubble = showThinking || msg.content !== "";
+    if (showBubble) {
+      const bubble = document.createElement("div");
+      bubble.className = "chat-bubble";
+      if (showThinking) {
+        bubble.innerHTML = '<div class="chat-thinking"><span></span><span></span><span></span></div>';
+      } else if (msg.isStreaming) {
+        bubble.textContent = msg.content;
+        bubble.appendChild(document.createElement("span")).className = "chat-cursor";
+      } else {
+        bubble.textContent = msg.content;
+      }
+      el.appendChild(bubble);
     }
 
     return el;

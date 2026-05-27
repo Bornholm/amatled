@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/bornholm/amatled/internal/editor"
+	"github.com/bornholm/amatled/internal/workspace"
 )
 
 type ctxKey struct{}
@@ -11,7 +12,8 @@ type ctxKey struct{}
 // SessionContext transporte la session d'édition active dans le contexte Go.
 type SessionContext struct {
 	Session   *editor.Session
-	AIMessage string // ID du message Chat déclencheur
+	AIMessage string
+	Workspace *workspace.Workspace
 }
 
 func WithSessionContext(ctx context.Context, sc *SessionContext) context.Context {
