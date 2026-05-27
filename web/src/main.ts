@@ -238,21 +238,46 @@ const tabs = new TabManager(
   }
 );
 
-const tree = new FileTree(treePanel, async (entry) => {
-  const existingTab = tabs.getTab(entry.path);
-  if (existingTab) {
-    tabs.switchTo(entry.path);
-    return;
-  }
-  try {
-    const result = await rpc<OpenFileResult>("editor.openFile", {
-      path: entry.path,
-    });
-    tabs.open(entry.path, entry.name, result.content);
-  } catch (err) {
-    console.error("editor.openFile failed", err);
-  }
-});
+const tree = new FileTree(
+  treePanel,
+  async (entry) => {
+    const existingTab = tabs.getTab(entry.path);
+    if (existingTab) {
+      tabs.switchTo(entry.path);
+      return;
+    }
+    try {
+      const result = await rpc<OpenFileResult>("editor.openFile", {
+        path: entry.path,
+      });
+      tabs.open(entry.path, entry.name, result.content);
+    } catch (err) {
+      console.error("editor.openFile failed", err);
+    }
+  },
+  async (entry) => {
+    if (!confirm(`Supprimer « ${entry.name} » ?`)) return;
+    try {
+      await rpc("workspace.deleteFile", { path: entry.path });
+      tabs.close(entry.path);
+    } catch (err) {
+      toast.show("Suppression impossible : " + String(err), "error");
+    }
+  },
+  async (dirPath) => {
+    const name = prompt("Nom du fichier (ex: notes.md ou dossier/page.md) :");
+    if (!name?.trim()) return;
+    const filePath = dirPath ? `${dirPath}/${name.trim()}` : name.trim();
+    try {
+      await rpc("workspace.createFile", { path: filePath });
+      const result = await rpc<OpenFileResult>("editor.openFile", { path: filePath });
+      const fileName = filePath.split("/").pop() ?? filePath;
+      tabs.open(filePath, fileName, result.content);
+    } catch (err) {
+      toast.show("Création impossible : " + String(err), "error");
+    }
+  },
+);
 
 // ── Section lock ──────────────────────────────────────────────────────────────
 async function toggleSectionLock(): Promise<void> {

@@ -94,6 +94,7 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 	b.handle("workspace.readFile", b.handleReadFile)
 	b.handle("workspace.writeFile", b.handleWriteFile)
 	b.handle("workspace.createFile", b.handleCreateFile)
+	b.handle("workspace.deleteFile", b.handleDeleteFile)
 	// Settings
 	b.handle("settings.get", b.handleGetSettings)
 	// Editor / historique
@@ -266,6 +267,25 @@ func (b *Bridge) handleCreateFile(paramsJSON string) (any, error) {
 	}
 	if err := b.workspace.CreateFile(params.Path); err != nil {
 		return nil, fmt.Errorf("create file: %w", err)
+	}
+	if files, err := b.workspace.ListFiles(); err == nil {
+		go b.Emit("workspace.treeUpdated", map[string]any{"files": files})
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleDeleteFile(paramsJSON string) (any, error) {
+	if b.workspace == nil {
+		return nil, fmt.Errorf("no workspace open")
+	}
+	var params struct {
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if err := b.workspace.DeleteFile(params.Path); err != nil {
+		return nil, fmt.Errorf("delete file: %w", err)
 	}
 	if files, err := b.workspace.ListFiles(); err == nil {
 		go b.Emit("workspace.treeUpdated", map[string]any{"files": files})

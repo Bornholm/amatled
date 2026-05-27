@@ -11,11 +11,20 @@ export class FileTree {
   private container: HTMLElement;
   private activePath: string | null = null;
   private onFileSelect: (entry: FileEntry) => void;
+  private onFileDelete?: (entry: FileEntry) => void;
+  private onCreateFile?: (dirPath: string) => void;
   private collapsedDirs: Set<string> = new Set();
 
-  constructor(container: HTMLElement, onFileSelect: (entry: FileEntry) => void) {
+  constructor(
+    container: HTMLElement,
+    onFileSelect: (entry: FileEntry) => void,
+    onFileDelete?: (entry: FileEntry) => void,
+    onCreateFile?: (dirPath: string) => void,
+  ) {
     this.container = container;
     this.onFileSelect = onFileSelect;
+    this.onFileDelete = onFileDelete;
+    this.onCreateFile = onCreateFile;
   }
 
   setFiles(files: FileEntry[]): void {
@@ -27,10 +36,25 @@ export class FileTree {
       this.container.appendChild(empty);
       return;
     }
+
+    const header = document.createElement("div");
+    header.className = "tree-panel-header";
+
     const title = document.createElement("div");
     title.className = "panel-title";
     title.textContent = "Fichiers";
-    this.container.appendChild(title);
+    header.appendChild(title);
+
+    if (this.onCreateFile) {
+      const btn = document.createElement("button");
+      btn.className = "tree-create-btn";
+      btn.title = "Nouveau fichier";
+      btn.textContent = "+";
+      btn.addEventListener("click", () => this.onCreateFile!(""));
+      header.appendChild(btn);
+    }
+
+    this.container.appendChild(header);
     this.container.appendChild(this.renderList(files));
   }
 
@@ -91,7 +115,28 @@ export class FileTree {
         const item = document.createElement("div");
         item.className = "tree-item";
         item.dataset.path = entry.path;
-        item.innerHTML = `${FILE_ICON_SVG}<span>${entry.name}</span>`;
+
+        const iconSpan = document.createElement("span");
+        iconSpan.innerHTML = FILE_ICON_SVG;
+        item.appendChild(iconSpan);
+
+        const nameSpan = document.createElement("span");
+        nameSpan.className = "tree-item-name";
+        nameSpan.textContent = entry.name;
+        item.appendChild(nameSpan);
+
+        if (this.onFileDelete) {
+          const delBtn = document.createElement("button");
+          delBtn.className = "tree-item-delete";
+          delBtn.title = "Supprimer";
+          delBtn.textContent = "×";
+          delBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            this.onFileDelete!(entry);
+          });
+          item.appendChild(delBtn);
+        }
+
         if (entry.path === this.activePath) {
           item.classList.add("active");
         }

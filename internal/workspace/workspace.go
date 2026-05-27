@@ -147,3 +147,12 @@ func (w *Workspace) WriteFile(path, content string) error {
 func (w *Workspace) CreateFile(path string) error {
 	return w.WriteFile(path, "")
 }
+
+// DeleteFile supprime un fichier du workspace.
+func (w *Workspace) DeleteFile(path string) error {
+	abs, err := w.absPath(path)
+	if err != nil {
+		return err
+	}
+	return os.Remove(abs)
+}
