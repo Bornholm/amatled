@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  goreleaser:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,10 +29,71 @@ jobs:
       - name: Install GTK3
         run: sudo apt-get update -y && sudo apt-get install -y libgtk-3-dev
 
-      - name: Run goreleaser
+      - name: Run goreleaser (Linux + Windows)
         uses: goreleaser/goreleaser-action@v6
         with:
           version: "~> v2"
           args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  macos:
+    needs: goreleaser
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install Node deps & build frontend
+        run: npm ci && npm run build
+
+      - name: Get tag version
+        id: version
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+
+      - name: Build darwin/amd64
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=amd64 \
+            go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.version.outputs.tag }}" \
+            -o amatled \
+            ./cmd/amatled
+          tar czf amatled_${{ steps.version.outputs.tag }}_darwin_amd64.tar.gz amatled
+          rm amatled
+
+      - name: Build darwin/arm64
+        run: |
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 \
+            go build -trimpath \
+            -ldflags "-s -w -X main.version=${{ steps.version.outputs.tag }}" \
+            -o amatled \
+            ./cmd/amatled
+          tar czf amatled_${{ steps.version.outputs.tag }}_darwin_arm64.tar.gz amatled
+          rm amatled
+
+      - name: Update checksums.txt with macOS artifacts
+        run: |
+          gh release download ${{ steps.version.outputs.tag }} -p checksums.txt
+          shasum -a 256 amatled_${{ steps.version.outputs.tag }}_darwin_*.tar.gz >> checksums.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload macOS artifacts to release
+        run: |
+          gh release upload ${{ steps.version.outputs.tag }} \
+            amatled_${{ steps.version.outputs.tag }}_darwin_amd64.tar.gz \
+            amatled_${{ steps.version.outputs.tag }}_darwin_arm64.tar.gz \
+            checksums.txt --clobber
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
