@@ -36,17 +36,26 @@ export class SettingsModal {
     try {
       const [llm, general] = await Promise.all([
         rpc<LLMSettings>("settings.getLLM", {}),
-        rpc<{ normalizeOnSave: boolean; autoUpdate: boolean; version: string }>("settings.get", {}),
+        rpc<{ normalizeOnSave: boolean; autoUpdate: boolean; renderConfig: string; renderConfigUsername: string; renderConfigPassword: string; version: string }>("settings.get", {}),
       ]);
       this.fillForm(llm);
       (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked =
         general.normalizeOnSave !== false;
       (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked =
         general.autoUpdate !== false;
+      (this.form.querySelector("#s-render-config") as HTMLInputElement).value =
+        general.renderConfig || "";
+      (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value =
+        general.renderConfigUsername || "";
+      (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value =
+        general.renderConfigPassword || "";
       this.versionLabel.textContent = general.version || "dev";
     } catch {
       (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked = true;
       (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked = true;
+      (this.form.querySelector("#s-render-config") as HTMLInputElement).value = "";
+      (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value = "";
+      (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value = "";
       this.versionLabel.textContent = "dev";
     }
     this.updateStatus.textContent = "";
@@ -194,10 +203,13 @@ export class SettingsModal {
   private async save(): Promise<void> {
     const normalizeOnSave = (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked;
     const autoUpdate = (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked;
+    const renderConfig = (this.form.querySelector("#s-render-config") as HTMLInputElement).value.trim();
+    const renderConfigUsername = (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value.trim();
+    const renderConfigPassword = (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value;
     try {
       await Promise.all([
         rpc("settings.saveLLM", this.collectForm()),
-        rpc("settings.saveGeneral", { normalizeOnSave, autoUpdate }),
+        rpc("settings.saveGeneral", { normalizeOnSave, autoUpdate, renderConfig, renderConfigUsername, renderConfigPassword }),
       ]);
     } catch (err) {
       console.error("save settings failed", err);

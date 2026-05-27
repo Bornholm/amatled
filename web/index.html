@@ -8,12 +8,33 @@
 </head>
 <body>
   <div id="app">
-    <header id="toolbar">
-      <button class="btn" id="btn-open-workspace">Ouvrir workspace</button>
+    <nav id="menubar">
+      <div class="menu-item" id="menu-fichier">
+        <button class="menu-btn">Fichier</button>
+        <ul class="menu-dropdown">
+          <li><button class="menu-action" id="menu-open-workspace">Ouvrir un workspace<kbd>Ctrl+O</kbd></button></li>
+          <li class="menu-sep"></li>
+          <li><button class="menu-action" id="menu-export-pdf" disabled>Exporter en PDF</button></li>
+        </ul>
+      </div>
+      <div class="menu-item" id="menu-affichage">
+        <button class="menu-btn">Affichage</button>
+        <ul class="menu-dropdown">
+          <li><button class="menu-action" id="menu-wrap">↵ Retour à la ligne auto</button></li>
+          <li class="menu-sep"></li>
+          <li><button class="menu-action" id="menu-toggle-chat">Masquer le panneau de chat</button></li>
+        </ul>
+      </div>
+      <div class="menu-item" id="menu-chat-menu">
+        <button class="menu-btn">Chat</button>
+        <ul class="menu-dropdown">
+          <li><button class="menu-action" id="menu-new-chat">Nouvelle conversation<kbd>Ctrl+Shift+N</kbd></button></li>
+        </ul>
+      </div>
       <span id="workspace-label"></span>
-      <div class="toolbar-spacer"></div>
-      <button class="btn btn--icon" id="btn-settings" title="Paramètres LLM">⚙</button>
-    </header>
+      <div class="menubar-spacer"></div>
+      <button class="btn btn--icon" id="btn-settings" title="Paramètres">⚙</button>
+    </nav>
     <div id="main-layout">
       <aside id="tree-panel"></aside>
       <div id="editor-panel">
@@ -25,15 +46,18 @@
         </div>
         <div class="view-toggle">
           <button class="view-btn active" data-view="source">Source</button>
-          <button class="view-btn" data-view="preview">Mise en forme</button>
-          <button class="btn btn--icon btn--active" id="btn-wrap-toggle" title="Retour à la ligne automatique (actif)">↵</button>
+          <button class="view-btn" data-view="preview">Rendu</button>
         </div>
         <div id="editor-content"></div>
+        <div id="editor-empty">
+          <p>Sélectionnez un fichier dans l'arborescence</p>
+          <p class="empty-hint">Fichier → Ouvrir un workspace ou <kbd>Ctrl+O</kbd></p>
+        </div>
         <div id="preview-container" class="hidden">
           <div class="preview-spinner hidden">
             <span class="spinner-icon"></span> Rendu en cours…
           </div>
-          <iframe id="preview-frame" sandbox="allow-scripts allow-same-origin" frameborder="0"></iframe>
+          <iframe id="preview-frame" frameborder="0"></iframe>
         </div>
       </div>
       <aside id="chat-panel">
@@ -97,6 +121,20 @@
         <div class="form-group form-group--checkbox">
           <input type="checkbox" id="s-normalize-on-save" />
           <label for="s-normalize-on-save">Normaliser le Markdown à la sauvegarde</label>
+        </div>
+        <div class="form-group">
+          <label for="s-render-config">Fichier de configuration amatl</label>
+          <input type="url" id="s-render-config" class="form-control" placeholder="https://example.com/document.yml" />
+        </div>
+        <div class="form-group form-group--row">
+          <div class="form-group">
+            <label for="s-render-config-username">Identifiant (Basic Auth)</label>
+            <input type="text" id="s-render-config-username" class="form-control" placeholder="utilisateur" autocomplete="off" />
+          </div>
+          <div class="form-group">
+            <label for="s-render-config-password">Mot de passe (Basic Auth)</label>
+            <input type="password" id="s-render-config-password" class="form-control" placeholder="••••••••" autocomplete="off" />
+          </div>
         </div>
         <hr class="settings-divider" />
         <div class="form-group">

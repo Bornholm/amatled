@@ -257,12 +257,13 @@ export class Chat {
     // Bulle principale de texte
     const bubble = document.createElement("div");
     bubble.className = "chat-bubble";
-    bubble.textContent = msg.content;
-    if (msg.isStreaming && msg.content === "") {
-      bubble.innerHTML = '<span class="chat-cursor"></span>';
+    if (msg.isStreaming && msg.content === "" && !msg.toolCalls?.length) {
+      bubble.innerHTML = '<div class="chat-thinking"><span></span><span></span><span></span></div>';
     } else if (msg.isStreaming) {
       bubble.textContent = msg.content;
       bubble.appendChild(document.createElement("span")).className = "chat-cursor";
+    } else {
+      bubble.textContent = msg.content;
     }
     el.appendChild(bubble);
 

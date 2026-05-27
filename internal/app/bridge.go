@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	agentkpkg "github.com/bornholm/amatled/internal/agent"
 	"github.com/bornholm/amatled/internal/editor"
+	"github.com/bornholm/amatled/internal/format"
 	"github.com/bornholm/amatled/internal/history"
 	"github.com/bornholm/amatled/internal/render"
 	"github.com/bornholm/amatled/internal/settings"
@@ -42,6 +45,13 @@ type Bridge struct {
 	sessions      *editor.SessionManager
 	version       string
 
+	// Cache PDF (prévisualisation)
+	pdfMu    sync.Mutex
+	pdfCache map[string][]byte
+
+	// Sérialisation des dialogues natifs GTK (non thread-safe)
+	dialogMu sync.Mutex
+
 	// Agent IA
 	agentMu      sync.Mutex
 	agentCancel  context.CancelFunc
@@ -63,6 +73,7 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 		settings:   s,
 		version:    version,
 		watchedMod: make(map[string]time.Time),
+		pdfCache:   make(map[string][]byte),
 	}
 
 	b.sessions = editor.NewSessionManager(func(fileID, content string, entry history.Entry, dir history.Direction) {
@@ -94,7 +105,8 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 	// Document
 	b.handle("document.getActiveSection", b.handleGetActiveSection)
 	b.handle("document.lockSection", b.handleLockSection)
-	b.handle("document.render", b.handleDocumentRender)
+	b.handle("document.renderPDF", b.handleDocumentRenderPDF)
+	b.handle("document.exportPDF", b.handleDocumentExportPDF)
 	// Chat / Agent
 	b.handle("chat.sendMessage", b.handleChatSendMessage)
 	b.handle("chat.cancel", b.handleChatCancel)
@@ -158,6 +170,10 @@ func (b *Bridge) encode(resp rpcResponse) string {
 // ─── Workspace handlers ───────────────────────────────────────────────────────
 
 func (b *Bridge) handleSelectFolder(_ string) (any, error) {
+	if !b.dialogMu.TryLock() {
+		return nil, fmt.Errorf("une boîte de dialogue est déjà ouverte")
+	}
+	defer b.dialogMu.Unlock()
 	path, err := dialog.Directory().Title("Ouvrir un workspace").Browse()
 	if err == dialog.ErrCancelled {
 		return map[string]any{"cancelled": true}, nil
@@ -320,18 +336,15 @@ func (b *Bridge) handleSaveFile(paramsJSON string) (any, error) {
 	}
 
 	content := sess.Content()
+	wasNormalized := false
 
 	if b.settings.IsNormalizeOnSave() {
-		normalized, err := render.NormalizeMarkdown(
-			context.Background(),
-			[]byte(content),
-			sess.FileID,
-			b.workspaceRoot,
-		)
+		normalized, err := format.FormatMarkdown(content)
 		if err != nil {
 			slog.Warn("normalize on save failed, saving raw content", "fileId", params.FileID, "err", err)
-		} else {
-			content = string(normalized)
+		} else if normalized != content {
+			content = normalized
+			wasNormalized = true
 			sess.SetContent(content)
 		}
 	}
@@ -340,7 +353,11 @@ func (b *Bridge) handleSaveFile(paramsJSON string) (any, error) {
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 	b.watcherRecord(params.FileID)
-	return map[string]bool{"ok": true}, nil
+	result := map[string]any{"ok": true}
+	if wasNormalized {
+		result["content"] = content
+	}
+	return result, nil
 }
 
 func (b *Bridge) handleUndo(paramsJSON string) (any, error) {
@@ -428,7 +445,15 @@ func (b *Bridge) handleLockSection(paramsJSON string) (any, error) {
 	return map[string]bool{"ok": true}, nil
 }
 
-func (b *Bridge) handleDocumentRender(paramsJSON string) (any, error) {
+// GetCachedPDF retourne le PDF mis en cache pour un fileID, utilisé par le serveur HTTP.
+func (b *Bridge) GetCachedPDF(fileID string) ([]byte, bool) {
+	b.pdfMu.Lock()
+	defer b.pdfMu.Unlock()
+	pdf, ok := b.pdfCache[fileID]
+	return pdf, ok
+}
+
+func (b *Bridge) handleDocumentRenderPDF(paramsJSON string) (any, error) {
 	var params struct {
 		FileID string `json:"fileId"`
 	}
@@ -439,16 +464,71 @@ func (b *Bridge) handleDocumentRender(paramsJSON string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
 	}
-	html, err := render.RenderHTML(
+	pdf, err := render.RenderPDF(
 		context.Background(),
 		[]byte(sess.Content()),
 		sess.FileID,
 		b.workspaceRoot,
+		b.settings.RenderConfig,
+		b.settings.RenderConfigUsername,
+		b.settings.RenderConfigPassword,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("render: %w", err)
+		return nil, fmt.Errorf("render pdf: %w", err)
 	}
-	return map[string]string{"html": html}, nil
+	b.pdfMu.Lock()
+	b.pdfCache[params.FileID] = pdf
+	b.pdfMu.Unlock()
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleDocumentExportPDF(paramsJSON string) (any, error) {
+	var params struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	sess, ok := b.sessions.Get(params.FileID)
+	if !ok {
+		return nil, fmt.Errorf("no session for %s", params.FileID)
+	}
+	pdf, err := render.RenderPDF(
+		context.Background(),
+		[]byte(sess.Content()),
+		sess.FileID,
+		b.workspaceRoot,
+		b.settings.RenderConfig,
+		b.settings.RenderConfigUsername,
+		b.settings.RenderConfigPassword,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("render pdf: %w", err)
+	}
+	if !b.dialogMu.TryLock() {
+		return nil, fmt.Errorf("une boîte de dialogue est déjà ouverte")
+	}
+	base := filepath.Base(params.FileID)
+	name := base[:len(base)-len(filepath.Ext(base))]
+	path, err := dialog.File().
+		Title("Exporter en PDF").
+		Filter("Fichiers PDF", "pdf").
+		SetStartFile(name + ".pdf").
+		Save()
+	b.dialogMu.Unlock()
+	if err == dialog.ErrCancelled {
+		return map[string]any{"cancelled": true}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("save dialog: %w", err)
+	}
+	if !strings.HasSuffix(strings.ToLower(path), ".pdf") {
+		path += ".pdf"
+	}
+	if err := os.WriteFile(path, pdf, 0644); err != nil {
+		return nil, fmt.Errorf("write pdf: %w", err)
+	}
+	return map[string]bool{"ok": true}, nil
 }
 
 // ─── Chat / Agent handlers ────────────────────────────────────────────────────
@@ -544,14 +624,20 @@ func (b *Bridge) handleSaveLLMSettings(paramsJSON string) (any, error) {
 
 func (b *Bridge) handleSaveGeneralSettings(paramsJSON string) (any, error) {
 	var params struct {
-		NormalizeOnSave bool `json:"normalizeOnSave"`
-		AutoUpdate      bool `json:"autoUpdate"`
+		NormalizeOnSave      bool   `json:"normalizeOnSave"`
+		AutoUpdate           bool   `json:"autoUpdate"`
+		RenderConfig         string `json:"renderConfig"`
+		RenderConfigUsername string `json:"renderConfigUsername"`
+		RenderConfigPassword string `json:"renderConfigPassword"`
 	}
 	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 	b.settings.NormalizeOnSave = &params.NormalizeOnSave
 	b.settings.AutoUpdate = &params.AutoUpdate
+	b.settings.RenderConfig = params.RenderConfig
+	b.settings.RenderConfigUsername = params.RenderConfigUsername
+	b.settings.RenderConfigPassword = params.RenderConfigPassword
 	if err := b.settings.Save(); err != nil {
 		return nil, fmt.Errorf("save settings: %w", err)
 	}

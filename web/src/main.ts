@@ -30,12 +30,13 @@ interface SectionRef {
 }
 
 // ── Éléments DOM ──────────────────────────────────────────────────────────────
-const btnOpenWorkspace = document.getElementById("btn-open-workspace")!;
 const btnSettings = document.getElementById("btn-settings")!;
 const workspaceLabel = document.getElementById("workspace-label")!;
+const mainLayout = document.getElementById("main-layout")!;
 const treePanel = document.getElementById("tree-panel")!;
 const tabsBar = document.getElementById("tabs-bar")!;
 const editorContent = document.getElementById("editor-content")!;
+const editorEmpty = document.getElementById("editor-empty")!;
 const previewContainer = document.getElementById("preview-container")!;
 const previewFrame = document.getElementById("preview-frame") as HTMLIFrameElement;
 const previewSpinner = previewContainer.querySelector<HTMLElement>(".preview-spinner")!;
@@ -50,6 +51,43 @@ const fileChangedMsg = document.getElementById("file-changed-msg")!;
 const fileChangedReload = document.getElementById("file-changed-reload") as HTMLButtonElement;
 const fileChangedDismiss = document.getElementById("file-changed-dismiss") as HTMLButtonElement;
 
+// ── Menu items ────────────────────────────────────────────────────────────────
+const menuOpenWorkspace = document.getElementById("menu-open-workspace") as HTMLButtonElement;
+const menuExportPdf = document.getElementById("menu-export-pdf") as HTMLButtonElement;
+const menuWrap = document.getElementById("menu-wrap") as HTMLButtonElement;
+const menuToggleChat = document.getElementById("menu-toggle-chat") as HTMLButtonElement;
+const menuNewChat = document.getElementById("menu-new-chat") as HTMLButtonElement;
+
+
+// ── Logique de la barre de menu ───────────────────────────────────────────────
+function setupMenubar(): void {
+  document.querySelectorAll<HTMLElement>(".menu-item").forEach((item) => {
+    const btn = item.querySelector<HTMLButtonElement>(".menu-btn");
+    if (!btn) return;
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const wasOpen = item.classList.contains("open");
+      closeAllMenus();
+      if (!wasOpen) item.classList.add("open");
+    });
+  });
+
+  document.addEventListener("click", closeAllMenus);
+
+  document.querySelectorAll<HTMLElement>(".menu-dropdown").forEach((dd) => {
+    dd.addEventListener("click", (e) => {
+      const action = (e.target as HTMLElement).closest<HTMLButtonElement>(".menu-action");
+      if (action && !action.disabled) closeAllMenus();
+    });
+  });
+}
+
+function closeAllMenus(): void {
+  document.querySelectorAll<HTMLElement>(".menu-item.open").forEach((el) => el.classList.remove("open"));
+}
+
+setupMenubar();
+
 // ── Preview & toggle Source/Mise en forme ──────────────────────────────────────
 const preview = new Preview(previewFrame, previewSpinner);
 let currentView: "source" | "preview" = "source";
@@ -58,6 +96,7 @@ async function switchView(view: "source" | "preview"): Promise<void> {
   if (view === currentView) return;
   currentView = view;
   viewBtns.forEach((b) => b.classList.toggle("active", b.dataset.view === view));
+  menuExportPdf.disabled = !tabs.getActive();
   if (view === "preview") {
     editorContent.classList.add("hidden");
     previewContainer.classList.remove("hidden");
@@ -72,6 +111,7 @@ async function switchView(view: "source" | "preview"): Promise<void> {
   } else {
     previewContainer.classList.add("hidden");
     editorContent.classList.remove("hidden");
+    preview.clear();
   }
 }
 
@@ -147,20 +187,16 @@ function updateSectionIndicator(ref: SectionRef | null): void {
 
 // ── Wrap toggle ───────────────────────────────────────────────────────────────
 const WRAP_KEY = "amatled.lineWrapping";
-const btnWrapToggle = document.getElementById("btn-wrap-toggle") as HTMLButtonElement;
 let lineWrapping = localStorage.getItem(WRAP_KEY) !== "false";
 
 function applyWrapState(enabled: boolean): void {
   lineWrapping = enabled;
   localStorage.setItem(WRAP_KEY, String(enabled));
-  btnWrapToggle.classList.toggle("btn--active", enabled);
-  btnWrapToggle.title = enabled
-    ? "Retour à la ligne automatique (actif)"
-    : "Retour à la ligne automatique (inactif)";
+  menuWrap.classList.toggle("active", enabled);
   editor.setLineWrapping(enabled);
 }
 
-btnWrapToggle.addEventListener("click", () => applyWrapState(!lineWrapping));
+menuWrap.addEventListener("click", () => applyWrapState(!lineWrapping));
 
 // ── Composants ────────────────────────────────────────────────────────────────
 const editor = new Editor(
@@ -178,9 +214,15 @@ const settingsModal = new SettingsModal(document.body);
 const tabs = new TabManager(
   tabsBar,
   (tab) => {
+    editorEmpty.classList.add("hidden");
+    menuExportPdf.disabled = false;
     if (currentView === "preview") {
+      editorContent.classList.add("hidden");
+      previewContainer.classList.remove("hidden");
       preview.render(tab.fileId).catch(console.error);
     } else {
+      editorContent.classList.remove("hidden");
+      previewContainer.classList.add("hidden");
       editor.show(tab.fileId, tab.content);
     }
     tree.setActivePath(tab.path);
@@ -189,6 +231,9 @@ const tabs = new TabManager(
   },
   () => {
     editor.hide();
+    editorContent.classList.add("hidden");
+    editorEmpty.classList.remove("hidden");
+    menuExportPdf.disabled = true;
     chat.setActiveFile(null);
   }
 );
@@ -258,16 +303,50 @@ async function openWorkspace(): Promise<void> {
   }
 }
 
-btnOpenWorkspace.addEventListener("click", openWorkspace);
+menuOpenWorkspace.addEventListener("click", openWorkspace);
 
 // ── Bouton Paramètres ─────────────────────────────────────────────────────────
-btnSettings.addEventListener("click", () => {
-  settingsModal.open();
+btnSettings.addEventListener("click", () => settingsModal.open());
+
+// ── Export PDF ────────────────────────────────────────────────────────────────
+async function doExportPdf(): Promise<void> {
+  const activeTab = tabs.getActive();
+  if (!activeTab) return;
+  const originalText = menuExportPdf.textContent!;
+  menuExportPdf.disabled = true;
+  menuExportPdf.textContent = "Export en cours…";
+  try {
+    const result = await rpc<{ ok: boolean; cancelled?: boolean }>("document.exportPDF", { fileId: activeTab.fileId });
+    if (!result.cancelled) {
+      toast.show("PDF exporté avec succès.", "success", 3000);
+    }
+  } catch (err) {
+    toast.show("Erreur lors de l'export PDF : " + String(err), "error");
+  } finally {
+    menuExportPdf.disabled = !tabs.getActive();
+    menuExportPdf.textContent = originalText;
+  }
+}
+
+menuExportPdf.addEventListener("click", doExportPdf);
+
+// ── Toggle chat panel ─────────────────────────────────────────────────────────
+function toggleChatPanel(): void {
+  const hidden = mainLayout.classList.toggle("chat-hidden");
+  menuToggleChat.textContent = hidden ? "Afficher le panneau de chat" : "Masquer le panneau de chat";
+}
+
+menuToggleChat.addEventListener("click", toggleChatPanel);
+
+// ── Nouvelle conversation (menu) ──────────────────────────────────────────────
+menuNewChat.addEventListener("click", () => {
+  chat.clearConversation();
+  toast.show("Nouvelle conversation démarrée.", "info", 2000);
 });
 
 // ── Raccourcis clavier globaux ────────────────────────────────────────────────
 document.addEventListener("keydown", (e) => {
-  // F5 — basculer Source / Mise en forme
+  // F5 — basculer Source / Rendu
   if (e.key === "F5" && !e.ctrlKey && !e.altKey) {
     e.preventDefault();
     switchView(currentView === "source" ? "preview" : "source");
@@ -275,7 +354,6 @@ document.addEventListener("keydown", (e) => {
   }
   // Ctrl+O — ouvrir workspace
   if (e.key === "o" && e.ctrlKey && !e.shiftKey && !e.altKey) {
-    // Ne pas interférer si le focus est dans un champ
     if (document.activeElement?.tagName === "INPUT" || document.activeElement?.tagName === "TEXTAREA") return;
     e.preventDefault();
     openWorkspace();
@@ -294,8 +372,9 @@ document.addEventListener("keydown", (e) => {
     toast.show("Nouvelle conversation démarrée.", "info", 2000);
     return;
   }
-  // Escape — fermer la modale paramètres
+  // Escape — fermer la modale paramètres ou les menus ouverts
   if (e.key === "Escape") {
+    closeAllMenus();
     settingsModal.close();
     return;
   }
@@ -339,6 +418,11 @@ bus.on("updater.updateApplied", (data) => {
 });
 
 // ── Démarrage ─────────────────────────────────────────────────────────────────
+// État initial : aucun fichier ouvert, éditeur masqué
+editorContent.classList.add("hidden");
+// Synchroniser l'état du wrap dans le menu
+applyWrapState(lineWrapping);
+
 (async () => {
   // Attend que lorca ait bindé window.rpc avant tout appel.
   await waitForBridge();

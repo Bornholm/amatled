@@ -21,10 +21,13 @@ type LLMSettings struct {
 
 // Settings contient les préférences persistées de l'application.
 type Settings struct {
-	LastWorkspace   string      `json:"lastWorkspace"`
-	NormalizeOnSave *bool       `json:"normalizeOnSave,omitempty"`
-	AutoUpdate      *bool       `json:"autoUpdate,omitempty"`
-	LLM             LLMSettings `json:"llm"`
+	LastWorkspace        string      `json:"lastWorkspace"`
+	NormalizeOnSave      *bool       `json:"normalizeOnSave,omitempty"`
+	AutoUpdate           *bool       `json:"autoUpdate,omitempty"`
+	RenderConfig         string      `json:"renderConfig,omitempty"`
+	RenderConfigUsername string      `json:"renderConfigUsername,omitempty"`
+	RenderConfigPassword string      `json:"renderConfigPassword,omitempty"`
+	LLM                  LLMSettings `json:"llm"`
 }
 
 // IsNormalizeOnSave retourne true si la normalisation à la sauvegarde est activée (défaut : true).

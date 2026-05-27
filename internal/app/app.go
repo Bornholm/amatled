@@ -38,7 +38,7 @@ func (a *App) Bridge() *Bridge {
 
 // Run démarre le serveur HTTP local, ouvre la fenêtre lorca et bloque jusqu'à fermeture.
 func (a *App) Run(webFS embed.FS) error {
-	addr, err := startFileServer(webFS)
+	addr, err := startFileServer(webFS, a.bridge)
 	if err != nil {
 		return fmt.Errorf("start file server: %w", err)
 	}
@@ -93,8 +93,8 @@ func (a *App) Run(webFS embed.FS) error {
 	return nil
 }
 
-// startFileServer démarre un serveur HTTP qui sert les assets embarqués.
-func startFileServer(webFS embed.FS) (string, error) {
+// startFileServer démarre un serveur HTTP qui sert les assets embarqués et l'API PDF.
+func startFileServer(webFS embed.FS, bridge *Bridge) (string, error) {
 	sub, err := fs.Sub(webFS, "web")
 	if err != nil {
 		return "", fmt.Errorf("sub fs: %w", err)
@@ -106,6 +106,17 @@ func startFileServer(webFS embed.FS) (string, error) {
 	}
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/pdf", func(w http.ResponseWriter, r *http.Request) {
+		fileId := r.URL.Query().Get("fileId")
+		pdf, ok := bridge.GetCachedPDF(fileId)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", "inline")
+		w.Write(pdf)
+	})
 	mux.Handle("/", http.FileServer(http.FS(sub)))
 
 	go func() {

@@ -292,7 +292,11 @@ export class Editor {
     if (!this.currentFileId) return;
     await this.flushSync();
     try {
-      await rpc("editor.saveFile", { fileId: this.currentFileId });
+      const result = await rpc<{ ok: boolean; content?: string }>("editor.saveFile", { fileId: this.currentFileId });
+      if (result.content !== undefined) {
+        this.applyRemoteContent(result.content);
+        this.onContentChange(this.currentFileId, result.content);
+      }
       this.onDirty(this.currentFileId, false);
     } catch (err) {
       console.error("save failed", err);
