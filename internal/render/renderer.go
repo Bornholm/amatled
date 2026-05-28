@@ -64,6 +64,8 @@ func NormalizeMarkdown(ctx context.Context, content []byte, filePath, workspaceR
 	sourceDir := filepath.Dir(filePath)
 	if sourceDir == "." || sourceDir == "" {
 		sourceDir = workspaceRoot
+	} else if !filepath.IsAbs(sourceDir) {
+		sourceDir = filepath.Join(workspaceRoot, sourceDir)
 	}
 
 	sourcePath := resolver.Path(sourceDir)
@@ -195,7 +197,7 @@ func buildMiddlewares(ctx context.Context, cfg *renderConfig, sourcePath resolve
 
 	var middlewares []pipeline.Middleware
 
-	if cfg.VarsURL != "" {
+	if cfg.VarsURL != "" || cfg.TemplateLeftDelimiter != "" || cfg.TemplateRightDelimiter != "" {
 		vars, err := loadJSONVars(ctx, cfg.VarsURL)
 		if err != nil {
 			return nil, fmt.Errorf("template vars: %w", err)
@@ -223,6 +225,8 @@ func RenderPDF(ctx context.Context, content []byte, filePath, workspaceRoot, con
 	sourceDir := filepath.Dir(filePath)
 	if sourceDir == "." || sourceDir == "" {
 		sourceDir = workspaceRoot
+	} else if !filepath.IsAbs(sourceDir) {
+		sourceDir = filepath.Join(workspaceRoot, sourceDir)
 	}
 
 	cfg := defaultRenderConfig()
