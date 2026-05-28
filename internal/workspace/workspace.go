@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -20,6 +21,43 @@ var ignoredDirs = map[string]bool{
 	"node_modules": true,
 	"dist":         true,
 	".cache":       true,
+	".amatled":     true,
+}
+
+// WorkspaceConfig contient les préférences persistées par workspace.
+type WorkspaceConfig struct {
+	ActiveProfile string `json:"activeProfile,omitempty"`
+}
+
+// LoadConfig charge la config workspace depuis .amatled/config.json.
+// Retourne une config vide (sans erreur) si le fichier n'existe pas.
+func (w *Workspace) LoadConfig() (*WorkspaceConfig, error) {
+	path := filepath.Join(w.RootPath, ".amatled", "config.json")
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return &WorkspaceConfig{}, nil
+	}
+	if err != nil {
+		return &WorkspaceConfig{}, fmt.Errorf("read workspace config: %w", err)
+	}
+	cfg := &WorkspaceConfig{}
+	if err := json.Unmarshal(data, cfg); err != nil {
+		return &WorkspaceConfig{}, fmt.Errorf("parse workspace config: %w", err)
+	}
+	return cfg, nil
+}
+
+// SaveConfig persiste la config workspace dans .amatled/config.json.
+func (w *Workspace) SaveConfig(cfg *WorkspaceConfig) error {
+	dir := filepath.Join(w.RootPath, ".amatled")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("mkdir .amatled: %w", err)
+	}
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal workspace config: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, "config.json"), data, 0644)
 }
 
 // FileEntry représente un fichier ou dossier dans l'arborescence.

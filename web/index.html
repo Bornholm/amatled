@@ -31,12 +31,14 @@
           <li><button class="menu-action" id="menu-new-chat">Nouvelle conversation<kbd>Ctrl+Shift+N</kbd></button></li>
         </ul>
       </div>
-      <span id="workspace-label"></span>
       <div class="menubar-spacer"></div>
+      <div id="profile-bar"></div>
       <button class="btn btn--icon" id="btn-settings" title="Paramètres">⚙</button>
     </nav>
     <div id="main-layout">
-      <aside id="tree-panel"></aside>
+      <aside id="tree-panel">
+        <div id="tree-files"></div>
+      </aside>
       <div id="editor-panel">
         <div id="tabs-bar"></div>
         <div id="file-changed-banner" class="file-changed-banner hidden" aria-live="polite">
@@ -77,75 +79,102 @@
     </div>
   </div>
 
-  <!-- Modale Paramètres LLM -->
+  <!-- Modale Paramètres -->
   <div id="settings-modal" class="modal-overlay">
     <div class="modal-dialog">
       <div class="modal-header">
-        <h2>Paramètres LLM</h2>
+        <h2>Paramètres</h2>
         <button class="settings-close-btn btn btn--icon" aria-label="Fermer">✕</button>
       </div>
+      <div class="settings-profiles-bar">
+        <select id="s-profile-select" class="form-control settings-profile-select"></select>
+        <button type="button" id="s-profile-new" class="btn btn--secondary" title="Nouveau profil">+</button>
+        <button type="button" id="s-profile-delete" class="btn btn--secondary" title="Supprimer le profil">×</button>
+      </div>
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab active" data-tab="llm" role="tab" aria-selected="true">LLM</button>
+        <button class="settings-tab" data-tab="redaction" role="tab" aria-selected="false">Rédaction</button>
+        <button class="settings-tab" data-tab="general" role="tab" aria-selected="false">Général</button>
+      </div>
       <form id="settings-form" class="settings-form">
-        <div class="form-group">
-          <label for="s-provider">Provider</label>
-          <select id="s-provider" class="form-control">
-            <option value="openai">OpenAI</option>
-            <option value="openrouter">OpenRouter</option>
-            <option value="mistral">Mistral</option>
-            <option value="custom">Autre (compatible OpenAI)</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="s-baseurl">URL de base</label>
-          <input type="url" id="s-baseurl" class="form-control" placeholder="https://api.openai.com/v1" />
-        </div>
-        <div class="form-group">
-          <label for="s-apikey">Clé API</label>
-          <input type="password" id="s-apikey" class="form-control" placeholder="sk-…" />
-        </div>
-        <div class="form-group">
-          <label for="s-model">Modèle</label>
-          <input type="text" id="s-model" class="form-control" placeholder="gpt-4o, claude-3-5-sonnet…" />
-        </div>
-        <div class="form-row">
+
+        <!-- ── Onglet LLM ── -->
+        <div class="settings-tab-panel active" data-panel="llm">
           <div class="form-group">
-            <label for="s-max-iter">Itérations max</label>
-            <input type="number" id="s-max-iter" class="form-control" value="20" min="1" max="100" />
+            <label for="s-provider">Provider</label>
+            <select id="s-provider" class="form-control">
+              <option value="openai">OpenAI</option>
+              <option value="openrouter">OpenRouter</option>
+              <option value="mistral">Mistral</option>
+              <option value="custom">Autre (compatible OpenAI)</option>
+            </select>
           </div>
           <div class="form-group">
-            <label for="s-max-tokens">Tokens max</label>
-            <input type="number" id="s-max-tokens" class="form-control" value="80000" min="4000" max="200000" />
-          </div>
-        </div>
-        <div id="settings-test-status" class="settings-test-status"></div>
-        <hr class="settings-divider" />
-        <div class="form-group form-group--checkbox">
-          <input type="checkbox" id="s-normalize-on-save" />
-          <label for="s-normalize-on-save">Normaliser le Markdown à la sauvegarde</label>
-        </div>
-        <div class="form-group">
-          <label for="s-render-config">Fichier de configuration amatl</label>
-          <input type="url" id="s-render-config" class="form-control" placeholder="https://example.com/document.yml" />
-        </div>
-        <div class="form-group form-group--row">
-          <div class="form-group">
-            <label for="s-render-config-username">Identifiant (Basic Auth)</label>
-            <input type="text" id="s-render-config-username" class="form-control" placeholder="utilisateur" autocomplete="off" />
+            <label for="s-baseurl">URL de base</label>
+            <input type="url" id="s-baseurl" class="form-control" placeholder="https://api.openai.com/v1" />
           </div>
           <div class="form-group">
-            <label for="s-render-config-password">Mot de passe (Basic Auth)</label>
-            <input type="password" id="s-render-config-password" class="form-control" placeholder="••••••••" autocomplete="off" />
+            <label for="s-apikey">Clé API</label>
+            <input type="password" id="s-apikey" class="form-control" placeholder="sk-…" />
+          </div>
+          <div class="form-group">
+            <label for="s-model">Modèle</label>
+            <input type="text" id="s-model" class="form-control" placeholder="gpt-4o, claude-3-5-sonnet…" />
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="s-max-iter">Itérations max</label>
+              <input type="number" id="s-max-iter" class="form-control" value="20" min="1" max="100" />
+            </div>
+            <div class="form-group">
+              <label for="s-max-tokens">Tokens max</label>
+              <input type="number" id="s-max-tokens" class="form-control" value="80000" min="4000" max="200000" />
+            </div>
+          </div>
+          <div id="settings-test-status" class="settings-test-status"></div>
+        </div>
+
+        <!-- ── Onglet Rédaction ── -->
+        <div class="settings-tab-panel" data-panel="redaction">
+          <div class="form-group">
+            <label for="s-system-prompt">Prompt système personnalisé</label>
+            <textarea id="s-system-prompt" class="form-control" rows="6" placeholder="Instructions supplémentaires pour l'agent (ton, contraintes, contexte…)"></textarea>
+          </div>
+          <hr class="settings-divider" />
+          <div class="form-group">
+            <label for="s-render-config">Fichier de configuration amatl</label>
+            <input type="url" id="s-render-config" class="form-control" placeholder="https://example.com/document.yml" />
+          </div>
+          <div class="form-group form-group--row">
+            <div class="form-group">
+              <label for="s-render-config-username">Identifiant (Basic Auth)</label>
+              <input type="text" id="s-render-config-username" class="form-control" placeholder="utilisateur" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-render-config-password">Mot de passe (Basic Auth)</label>
+              <input type="password" id="s-render-config-password" class="form-control" placeholder="••••••••" autocomplete="off" />
+            </div>
           </div>
         </div>
-        <hr class="settings-divider" />
-        <div class="form-group">
-          <label>Version</label>
-          <span id="s-version" class="form-version-label">…</span>
+
+        <!-- ── Onglet Général ── -->
+        <div class="settings-tab-panel" data-panel="general">
+          <div class="form-group form-group--checkbox">
+            <input type="checkbox" id="s-normalize-on-save" />
+            <label for="s-normalize-on-save">Normaliser le Markdown à la sauvegarde</label>
+          </div>
+          <hr class="settings-divider" />
+          <div class="form-group">
+            <label>Version</label>
+            <span id="s-version" class="form-version-label">…</span>
+          </div>
+          <div class="form-group form-group--checkbox">
+            <input type="checkbox" id="s-auto-update" checked />
+            <label for="s-auto-update">Vérifier automatiquement les mises à jour au démarrage</label>
+          </div>
+          <div id="s-update-status" class="settings-test-status"></div>
         </div>
-        <div class="form-group form-group--checkbox">
-          <input type="checkbox" id="s-auto-update" checked />
-          <label for="s-auto-update">Vérifier automatiquement les mises à jour au démarrage</label>
-        </div>
-        <div id="s-update-status" class="settings-test-status"></div>
+
       </form>
       <div class="modal-footer">
         <button id="settings-update-btn" class="btn btn--secondary">Vérifier les mises à jour</button>

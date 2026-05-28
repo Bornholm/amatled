@@ -26,14 +26,17 @@ import (
 
 // Runner exécute l'agent IA sur une session d'édition.
 type Runner struct {
-	settings  *settings.Settings
-	workspace *workspace.Workspace
+	settings     *settings.Settings
+	llmSettings  settings.LLMSettings // profil actif résolu (avec APIKey depuis keyring)
+	systemPrompt string               // prompt système personnalisé du profil (peut être vide)
+	workspace    *workspace.Workspace
 }
 
-// NewRunner crée un Runner à partir des settings courants.
+// NewRunner crée un Runner à partir des settings courants et du profil résolu.
+// llm doit inclure l'APIKey récupérée depuis le keyring.
 // ws peut être nil si aucun workspace n'est ouvert.
-func NewRunner(s *settings.Settings, ws *workspace.Workspace) *Runner {
-	return &Runner{settings: s, workspace: ws}
+func NewRunner(s *settings.Settings, llm settings.LLMSettings, systemPrompt string, ws *workspace.Workspace) *Runner {
+	return &Runner{settings: s, llmSettings: llm, systemPrompt: systemPrompt, workspace: ws}
 }
 
 // Run démarre l'agent pour un message utilisateur donné et émet les événements au fil de l'eau.
@@ -66,13 +69,13 @@ func (r *Runner) Run(
 	}
 	toolCtx := tools.WithSessionContext(ctx, sc)
 
-	systemPrompt := buildSystemPrompt(sess, wsIdx)
+	systemPrompt := buildSystemPrompt(sess, wsIdx, r.systemPrompt)
 
-	maxIter := r.settings.LLM.MaxIterations
+	maxIter := r.llmSettings.MaxIterations
 	if maxIter <= 0 {
 		maxIter = 20
 	}
-	maxTokens := r.settings.LLM.MaxTokens
+	maxTokens := r.llmSettings.MaxTokens
 	if maxTokens <= 0 {
 		maxTokens = 80_000
 	}
@@ -152,7 +155,7 @@ func applyMarkdownFormat(sess *editor.Session, aiMsgID string) {
 }
 
 func (r *Runner) createClient(ctx context.Context) (llm.ChatCompletionClient, error) {
-	s := r.settings.LLM
+	s := r.llmSettings
 	provName := provider.Name(s.Provider)
 	if provName == "" {
 		provName = openaiProvider.Name
@@ -201,11 +204,17 @@ func (r *Runner) buildTools() []llm.Tool {
 }
 
 // buildSystemPrompt construit le prompt système avec ToC, section active et index workspace.
-func buildSystemPrompt(sess *editor.Session, wsIdx *document.WorkspaceIndex) string {
+// customPrompt est le prompt personnalisé du profil actif ; s'il est non vide, il est
+// préfixé avant les instructions techniques.
+func buildSystemPrompt(sess *editor.Session, wsIdx *document.WorkspaceIndex, customPrompt string) string {
 	content := sess.Content()
 	toc := generateTOC(content)
 
 	var sb strings.Builder
+	if customPrompt != "" {
+		sb.WriteString(customPrompt)
+		sb.WriteString("\n\n")
+	}
 	sb.WriteString(`Tu es un rédacteur et éditeur technique expert. Tu assistes un auteur à rédiger et améliorer un document Markdown.
 
 Fichier actif : `)

@@ -15,6 +15,7 @@ import (
 	"github.com/bornholm/amatled/internal/editor"
 	"github.com/bornholm/amatled/internal/format"
 	"github.com/bornholm/amatled/internal/history"
+	appkeyring "github.com/bornholm/amatled/internal/keyring"
 	"github.com/bornholm/amatled/internal/render"
 	"github.com/bornholm/amatled/internal/settings"
 	"github.com/bornholm/amatled/internal/updater"
@@ -39,11 +40,12 @@ type Bridge struct {
 	ui       lorca.UI
 	handlers map[string]HandlerFunc
 
-	workspace     *workspace.Workspace
-	workspaceRoot string
-	settings      *settings.Settings
-	sessions      *editor.SessionManager
-	version       string
+	workspace              *workspace.Workspace
+	workspaceRoot          string
+	workspaceActiveProfile string // profil actif pour le workspace courant
+	settings               *settings.Settings
+	sessions               *editor.SessionManager
+	version                string
 
 	// Cache PDF (prévisualisation)
 	pdfMu    sync.Mutex
@@ -95,8 +97,14 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 	b.handle("workspace.writeFile", b.handleWriteFile)
 	b.handle("workspace.createFile", b.handleCreateFile)
 	b.handle("workspace.deleteFile", b.handleDeleteFile)
+	b.handle("workspace.getActiveProfile", b.handleGetActiveProfile)
+	b.handle("workspace.setActiveProfile", b.handleSetActiveProfile)
 	// Settings
 	b.handle("settings.get", b.handleGetSettings)
+	b.handle("settings.listProfiles", b.handleListProfiles)
+	b.handle("settings.createProfile", b.handleCreateProfile)
+	b.handle("settings.updateProfile", b.handleUpdateProfile)
+	b.handle("settings.deleteProfile", b.handleDeleteProfile)
 	// Editor / historique
 	b.handle("editor.openFile", b.handleEditorOpenFile)
 	b.handle("editor.applyLocalChanges", b.handleApplyLocalChanges)
@@ -111,7 +119,7 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 	// Chat / Agent
 	b.handle("chat.sendMessage", b.handleChatSendMessage)
 	b.handle("chat.cancel", b.handleChatCancel)
-	// Settings LLM
+	// Settings LLM (legacy, conservé pour compatibilité)
 	b.handle("settings.getLLM", b.handleGetLLMSettings)
 	b.handle("settings.saveLLM", b.handleSaveLLMSettings)
 	b.handle("settings.testLLM", b.handleTestLLMConnection)
@@ -168,6 +176,43 @@ func (b *Bridge) encode(resp rpcResponse) string {
 	return string(data)
 }
 
+// ─── Helpers profil actif ─────────────────────────────────────────────────────
+
+// resolveActiveProfileName retourne le nom du profil actif :
+// d'abord la valeur per-workspace, sinon le global.
+func (b *Bridge) resolveActiveProfileName() string {
+	if b.workspaceActiveProfile != "" {
+		return b.workspaceActiveProfile
+	}
+	return b.settings.ActiveProfile
+}
+
+// resolveActiveProfile retourne le profil actif avec les secrets chargés depuis le keyring.
+func (b *Bridge) resolveActiveProfile() settings.Profile {
+	name := b.resolveActiveProfileName()
+	p := b.settings.ResolveProfile(name)
+	if p == nil {
+		return settings.Profile{}
+	}
+	out := *p
+	out.LLM.APIKey, _ = appkeyring.GetProfileAPIKey(p.Name)
+	out.RenderConfigPassword, _ = appkeyring.GetProfileRenderPassword(p.Name)
+	return out
+}
+
+// isLLMConfigured vérifie que le profil actif a une config LLM minimale.
+func (b *Bridge) isLLMConfigured() bool {
+	p := b.resolveActiveProfile()
+	return p.LLM.Provider != "" && p.LLM.APIKey != "" && p.LLM.Model != ""
+}
+
+// profileWithSecrets retourne un profil de la liste avec ses secrets depuis le keyring.
+func profileWithSecrets(p settings.Profile) settings.Profile {
+	p.LLM.APIKey, _ = appkeyring.GetProfileAPIKey(p.Name)
+	p.RenderConfigPassword, _ = appkeyring.GetProfileRenderPassword(p.Name)
+	return p
+}
+
 // ─── Workspace handlers ───────────────────────────────────────────────────────
 
 func (b *Bridge) handleSelectFolder(_ string) (any, error) {
@@ -202,12 +247,22 @@ func (b *Bridge) handleOpenWorkspace(paramsJSON string) (any, error) {
 	if err := b.settings.Save(); err != nil {
 		slog.Warn("failed to save settings", "err", err)
 	}
+
+	// Charger le profil actif du workspace
+	if cfg, err := ws.LoadConfig(); err == nil && cfg.ActiveProfile != "" {
+		b.workspaceActiveProfile = cfg.ActiveProfile
+	} else {
+		b.workspaceActiveProfile = ""
+	}
+
 	files, err := ws.ListFiles()
 	if err != nil {
 		return nil, fmt.Errorf("list files: %w", err)
 	}
 	b.startWatcher()
-	return map[string]any{"files": files, "rootPath": ws.RootPath}, nil
+
+	activeProfile := b.resolveActiveProfileName()
+	return map[string]any{"files": files, "rootPath": ws.RootPath, "activeProfile": activeProfile}, nil
 }
 
 func (b *Bridge) handleListFiles(_ string) (any, error) {
@@ -293,12 +348,43 @@ func (b *Bridge) handleDeleteFile(paramsJSON string) (any, error) {
 	return map[string]bool{"ok": true}, nil
 }
 
-func (b *Bridge) handleGetSettings(_ string) (any, error) {
-	type settingsResponse struct {
-		*settings.Settings
-		Version string `json:"version"`
+func (b *Bridge) handleGetActiveProfile(_ string) (any, error) {
+	return map[string]string{"name": b.resolveActiveProfileName()}, nil
+}
+
+func (b *Bridge) handleSetActiveProfile(paramsJSON string) (any, error) {
+	var params struct {
+		Name string `json:"name"`
 	}
-	return &settingsResponse{Settings: b.settings, Version: b.version}, nil
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if b.settings.GetProfile(params.Name) == nil {
+		return nil, fmt.Errorf("profil inconnu : %s", params.Name)
+	}
+	b.workspaceActiveProfile = params.Name
+	b.settings.ActiveProfile = params.Name
+	if err := b.settings.Save(); err != nil {
+		slog.Warn("failed to save settings after setActiveProfile", "err", err)
+	}
+	if b.workspace != nil {
+		cfg := &workspace.WorkspaceConfig{ActiveProfile: params.Name}
+		if err := b.workspace.SaveConfig(cfg); err != nil {
+			slog.Warn("failed to save workspace config", "err", err)
+		}
+	}
+	go b.Emit("profile.changed", map[string]string{"name": params.Name})
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleGetSettings(_ string) (any, error) {
+	return map[string]any{
+		"lastWorkspace":   b.settings.LastWorkspace,
+		"normalizeOnSave": b.settings.IsNormalizeOnSave(),
+		"autoUpdate":      b.settings.IsAutoUpdate(),
+		"activeProfile":   b.resolveActiveProfileName(),
+		"version":         b.version,
+	}, nil
 }
 
 // ─── Editor / History handlers ────────────────────────────────────────────────
@@ -484,14 +570,15 @@ func (b *Bridge) handleDocumentRenderPDF(paramsJSON string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
 	}
+	profile := b.resolveActiveProfile()
 	pdf, err := render.RenderPDF(
 		context.Background(),
 		[]byte(sess.Content()),
 		sess.FileID,
 		b.workspaceRoot,
-		b.settings.RenderConfig,
-		b.settings.RenderConfigUsername,
-		b.settings.RenderConfigPassword,
+		profile.RenderConfig,
+		profile.RenderConfigUsername,
+		profile.RenderConfigPassword,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("render pdf: %w", err)
@@ -513,14 +600,15 @@ func (b *Bridge) handleDocumentExportPDF(paramsJSON string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
 	}
+	profile := b.resolveActiveProfile()
 	pdf, err := render.RenderPDF(
 		context.Background(),
 		[]byte(sess.Content()),
 		sess.FileID,
 		b.workspaceRoot,
-		b.settings.RenderConfig,
-		b.settings.RenderConfigUsername,
-		b.settings.RenderConfigPassword,
+		profile.RenderConfig,
+		profile.RenderConfigUsername,
+		profile.RenderConfigPassword,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("render pdf: %w", err)
@@ -575,17 +663,19 @@ func (b *Bridge) handleChatSendMessage(paramsJSON string) (any, error) {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
 	}
 
-	if !b.settings.LLMConfigured() {
+	if !b.isLLMConfigured() {
 		b.agentMu.Unlock()
 		return nil, fmt.Errorf("configuration LLM manquante — ouvrez les paramètres pour configurer votre provider")
 	}
+
+	activeProfile := b.resolveActiveProfile()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	b.agentCancel = cancel
 	b.agentRunning = true
 	b.agentMu.Unlock()
 
-	runner := agentkpkg.NewRunner(b.settings, b.workspace)
+	runner := agentkpkg.NewRunner(b.settings, activeProfile.LLM, activeProfile.SystemPrompt, b.workspace)
 
 	go func() {
 		defer func() {
@@ -624,6 +714,116 @@ func (b *Bridge) handleChatCancel(_ string) (any, error) {
 	return map[string]bool{"ok": true}, nil
 }
 
+// ─── Profile handlers ─────────────────────────────────────────────────────────
+
+func (b *Bridge) handleListProfiles(_ string) (any, error) {
+	profiles := make([]settings.Profile, len(b.settings.Profiles))
+	for i, p := range b.settings.Profiles {
+		profiles[i] = profileWithSecrets(p)
+	}
+	return profiles, nil
+}
+
+func (b *Bridge) handleCreateProfile(paramsJSON string) (any, error) {
+	var p settings.Profile
+	if err := json.Unmarshal([]byte(paramsJSON), &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.Name == "" {
+		return nil, fmt.Errorf("le nom du profil est requis")
+	}
+	if b.settings.GetProfile(p.Name) != nil {
+		return nil, fmt.Errorf("un profil nommé %q existe déjà", p.Name)
+	}
+	if err := appkeyring.SetProfileAPIKey(p.Name, p.LLM.APIKey); err != nil {
+		slog.Warn("keyring set api key failed", "profile", p.Name, "err", err)
+	}
+	if err := appkeyring.SetProfileRenderPassword(p.Name, p.RenderConfigPassword); err != nil {
+		slog.Warn("keyring set render password failed", "profile", p.Name, "err", err)
+	}
+	p.LLM.APIKey = ""
+	p.RenderConfigPassword = ""
+	b.settings.Profiles = append(b.settings.Profiles, p)
+	if b.settings.ActiveProfile == "" {
+		b.settings.ActiveProfile = p.Name
+	}
+	if err := b.settings.Save(); err != nil {
+		return nil, fmt.Errorf("save settings: %w", err)
+	}
+	go b.Emit("profiles.updated", nil)
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleUpdateProfile(paramsJSON string) (any, error) {
+	var p settings.Profile
+	if err := json.Unmarshal([]byte(paramsJSON), &p); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if p.Name == "" {
+		return nil, fmt.Errorf("le nom du profil est requis")
+	}
+	found := false
+	for i := range b.settings.Profiles {
+		if b.settings.Profiles[i].Name == p.Name {
+			if err := appkeyring.SetProfileAPIKey(p.Name, p.LLM.APIKey); err != nil {
+				slog.Warn("keyring set api key failed", "profile", p.Name, "err", err)
+			}
+			if err := appkeyring.SetProfileRenderPassword(p.Name, p.RenderConfigPassword); err != nil {
+				slog.Warn("keyring set render password failed", "profile", p.Name, "err", err)
+			}
+			p.LLM.APIKey = ""
+			p.RenderConfigPassword = ""
+			b.settings.Profiles[i] = p
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("profil inconnu : %s", p.Name)
+	}
+	if err := b.settings.Save(); err != nil {
+		return nil, fmt.Errorf("save settings: %w", err)
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleDeleteProfile(paramsJSON string) (any, error) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if len(b.settings.Profiles) <= 1 {
+		return nil, fmt.Errorf("impossible de supprimer le dernier profil")
+	}
+	idx := -1
+	for i, p := range b.settings.Profiles {
+		if p.Name == params.Name {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("profil inconnu : %s", params.Name)
+	}
+	if err := appkeyring.DeleteProfile(params.Name); err != nil {
+		slog.Warn("keyring delete profile failed", "profile", params.Name, "err", err)
+	}
+	b.settings.Profiles = append(b.settings.Profiles[:idx], b.settings.Profiles[idx+1:]...)
+	if b.settings.ActiveProfile == params.Name {
+		b.settings.ActiveProfile = b.settings.Profiles[0].Name
+	}
+	if b.workspaceActiveProfile == params.Name {
+		b.workspaceActiveProfile = ""
+	}
+	if err := b.settings.Save(); err != nil {
+		return nil, fmt.Errorf("save settings: %w", err)
+	}
+	go b.Emit("profiles.updated", nil)
+	return map[string]bool{"ok": true}, nil
+}
+
 // ─── Settings LLM handlers ────────────────────────────────────────────────────
 
 func (b *Bridge) handleGetLLMSettings(_ string) (any, error) {
@@ -644,20 +844,14 @@ func (b *Bridge) handleSaveLLMSettings(paramsJSON string) (any, error) {
 
 func (b *Bridge) handleSaveGeneralSettings(paramsJSON string) (any, error) {
 	var params struct {
-		NormalizeOnSave      bool   `json:"normalizeOnSave"`
-		AutoUpdate           bool   `json:"autoUpdate"`
-		RenderConfig         string `json:"renderConfig"`
-		RenderConfigUsername string `json:"renderConfigUsername"`
-		RenderConfigPassword string `json:"renderConfigPassword"`
+		NormalizeOnSave bool `json:"normalizeOnSave"`
+		AutoUpdate      bool `json:"autoUpdate"`
 	}
 	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
 	}
 	b.settings.NormalizeOnSave = &params.NormalizeOnSave
 	b.settings.AutoUpdate = &params.AutoUpdate
-	b.settings.RenderConfig = params.RenderConfig
-	b.settings.RenderConfigUsername = params.RenderConfigUsername
-	b.settings.RenderConfigPassword = params.RenderConfigPassword
 	if err := b.settings.Save(); err != nil {
 		return nil, fmt.Errorf("save settings: %w", err)
 	}
@@ -698,12 +892,12 @@ func (b *Bridge) handleUpdaterApply(_ string) (any, error) {
 }
 
 func (b *Bridge) handleTestLLMConnection(_ string) (any, error) {
-	if !b.settings.LLMConfigured() {
+	if !b.isLLMConfigured() {
 		return nil, fmt.Errorf("configuration LLM incomplète")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	runner := agentkpkg.NewRunner(b.settings, b.workspace)
+	runner := agentkpkg.NewRunner(b.settings, b.resolveActiveProfile().LLM, "", b.workspace)
 	if err := runner.TestConnection(ctx); err != nil {
 		return nil, fmt.Errorf("connexion échouée : %w", err)
 	}

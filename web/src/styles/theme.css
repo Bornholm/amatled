@@ -168,8 +168,50 @@ body {
 #tree-panel {
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
   min-width: 200px;
+  overflow-y: auto;
+}
+
+#tree-files {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Sélecteur de profil dans la menubar */
+#profile-bar {
+  display: flex;
+  align-items: center;
+}
+
+.profile-selector {
+  background: var(--bg-secondary);
+  color: var(--fg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  max-width: 160px;
+}
+
+.profile-selector:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Barre de profils dans la modal settings (entre les onglets et le formulaire) */
+.settings-profiles-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-profile-select {
+  flex: 1;
 }
 
 .tree-panel-header {
@@ -583,6 +625,43 @@ button.btn--icon:hover { color: var(--fg); background: var(--bg-tertiary); }
   color: var(--fg);
 }
 
+/* ── Onglets de la modal ── */
+.settings-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 0 12px;
+  flex-shrink: 0;
+}
+
+.settings-tab {
+  padding: 8px 14px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  cursor: pointer;
+  margin-bottom: -1px;
+  transition: color 0.15s;
+}
+
+.settings-tab:hover { color: var(--fg); }
+
+.settings-tab.active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.settings-tab-panel {
+  display: none;
+}
+
+.settings-tab-panel.active {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
 .modal-footer {
   display: flex;
   justify-content: flex-end;
@@ -595,7 +674,6 @@ button.btn--icon:hover { color: var(--fg); background: var(--bg-tertiary); }
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
   overflow-y: auto;
 }
 

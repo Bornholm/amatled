@@ -31,9 +31,9 @@ interface SectionRef {
 
 // ── Éléments DOM ──────────────────────────────────────────────────────────────
 const btnSettings = document.getElementById("btn-settings")!;
-const workspaceLabel = document.getElementById("workspace-label")!;
 const mainLayout = document.getElementById("main-layout")!;
-const treePanel = document.getElementById("tree-panel")!;
+const profileBar = document.getElementById("profile-bar")!;
+const treeFiles = document.getElementById("tree-files")!;
 const tabsBar = document.getElementById("tabs-bar")!;
 const editorContent = document.getElementById("editor-content")!;
 const editorEmpty = document.getElementById("editor-empty")!;
@@ -87,6 +87,42 @@ function closeAllMenus(): void {
 }
 
 setupMenubar();
+
+// ── Sélecteur de profil (sidebar) ────────────────────────────────────────────
+const profileSelectEl = document.createElement("select");
+profileSelectEl.className = "profile-selector";
+profileSelectEl.title = "Profil actif pour ce workspace";
+profileBar.appendChild(profileSelectEl);
+
+async function refreshProfileSelector(activeProfileName?: string): Promise<void> {
+  try {
+    const [profiles, active] = await Promise.all([
+      rpc<{ name: string }[]>("settings.listProfiles", {}),
+      activeProfileName !== undefined
+        ? Promise.resolve({ name: activeProfileName })
+        : rpc<{ name: string }>("workspace.getActiveProfile", {}),
+    ]);
+    profileSelectEl.innerHTML = "";
+    for (const p of profiles) {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = p.name;
+      profileSelectEl.appendChild(opt);
+    }
+    profileSelectEl.value = active.name;
+    profileBar.style.display = profiles.length > 0 ? "" : "none";
+  } catch {
+    profileBar.style.display = "none";
+  }
+}
+
+profileSelectEl.addEventListener("change", async () => {
+  try {
+    await rpc("workspace.setActiveProfile", { name: profileSelectEl.value });
+  } catch (err) {
+    toast.show("Impossible de changer de profil : " + String(err), "error");
+  }
+});
 
 // ── Preview & toggle Source/Mise en forme ──────────────────────────────────────
 const preview = new Preview(previewFrame, previewSpinner);
@@ -239,7 +275,7 @@ const tabs = new TabManager(
 );
 
 const tree = new FileTree(
-  treePanel,
+  treeFiles,
   async (entry) => {
     const existingTab = tabs.getTab(entry.path);
     if (existingTab) {
@@ -308,7 +344,8 @@ sectionIndicator.addEventListener("click", toggleSectionLock);
 function applyWorkspace(result: WorkspaceResult): void {
   tree.setFiles(result.files);
   const parts = result.rootPath.split(/[\\/]/);
-  workspaceLabel.textContent = parts[parts.length - 1] || result.rootPath;
+  const name = parts[parts.length - 1] || result.rootPath;
+  document.title = `${name} — AmatlEd`;
 }
 
 async function openWorkspace(): Promise<void> {
@@ -407,7 +444,18 @@ document.addEventListener("keydown", (e) => {
 
 // ── Événements Go → JS ───────────────────────────────────────────────────────
 bus.on("workspace.opened", (data) => {
-  applyWorkspace(data as WorkspaceResult);
+  const result = data as WorkspaceResult & { activeProfile?: string };
+  applyWorkspace(result);
+  refreshProfileSelector(result.activeProfile);
+});
+
+bus.on("profile.changed", (data) => {
+  const { name } = data as { name: string };
+  if (profileSelectEl.value !== name) profileSelectEl.value = name;
+});
+
+bus.on("profiles.updated", () => {
+  refreshProfileSelector();
 });
 
 bus.on("workspace.treeUpdated", (data) => {

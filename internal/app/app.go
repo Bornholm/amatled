@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 
+	appkeyring "github.com/bornholm/amatled/internal/keyring"
 	"github.com/bornholm/amatled/internal/settings"
 	"github.com/bornholm/amatled/internal/updater"
 	"github.com/zserge/lorca"
@@ -27,11 +28,46 @@ func New(version, initialWorkspace string) *App {
 		slog.Warn("failed to load settings", "err", err)
 		s = &settings.Settings{}
 	}
+	if s.NeedsProfileMigration() {
+		if err := migrateSettingsToProfiles(s); err != nil {
+			slog.Warn("profile migration failed", "err", err)
+		}
+	}
 	return &App{
 		bridge:           newBridge(s, version),
 		version:          version,
 		initialWorkspace: initialWorkspace,
 	}
+}
+
+// migrateSettingsToProfiles crée un profil "Défaut" depuis les champs legacy et
+// stocke les secrets dans le keyring.
+func migrateSettingsToProfiles(s *settings.Settings) error {
+	if s.LLM.APIKey != "" {
+		if err := appkeyring.SetProfileAPIKey("Défaut", s.LLM.APIKey); err != nil {
+			return fmt.Errorf("store api key: %w", err)
+		}
+	}
+	if s.RenderConfigPassword != "" {
+		if err := appkeyring.SetProfileRenderPassword("Défaut", s.RenderConfigPassword); err != nil {
+			return fmt.Errorf("store render password: %w", err)
+		}
+	}
+	s.Profiles = []settings.Profile{{
+		Name: "Défaut",
+		LLM: settings.LLMSettings{
+			Provider:      s.LLM.Provider,
+			BaseURL:       s.LLM.BaseURL,
+			Model:         s.LLM.Model,
+			MaxIterations: s.LLM.MaxIterations,
+			MaxTokens:     s.LLM.MaxTokens,
+		},
+		RenderConfig:         s.RenderConfig,
+		RenderConfigUsername: s.RenderConfigUsername,
+	}}
+	s.ActiveProfile = "Défaut"
+	slog.Info("migrated settings to profiles")
+	return s.Save()
 }
 
 func (a *App) Bridge() *Bridge {

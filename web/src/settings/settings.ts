@@ -9,6 +9,15 @@ export interface LLMSettings {
   maxTokens: number;
 }
 
+export interface Profile {
+  name: string;
+  llm: LLMSettings;
+  systemPrompt: string;
+  renderConfig: string;
+  renderConfigUsername: string;
+  renderConfigPassword: string;
+}
+
 export class SettingsModal {
   private modal: HTMLElement;
   private form: HTMLFormElement;
@@ -18,6 +27,13 @@ export class SettingsModal {
   private updateBtn: HTMLButtonElement;
   private updateStatus: HTMLElement;
   private versionLabel: HTMLElement;
+  private profileSelect: HTMLSelectElement;
+  private profileNewBtn: HTMLButtonElement;
+  private profileDeleteBtn: HTMLButtonElement;
+
+  private profiles: Profile[] = [];
+  private currentProfileName = "";
+  private activeTab = "llm";
 
   constructor(private container: HTMLElement) {
     this.modal = container.querySelector<HTMLElement>("#settings-modal")!;
@@ -28,43 +44,39 @@ export class SettingsModal {
     this.updateBtn = container.querySelector<HTMLButtonElement>("#settings-update-btn")!;
     this.updateStatus = container.querySelector<HTMLElement>("#s-update-status")!;
     this.versionLabel = container.querySelector<HTMLElement>("#s-version")!;
+    this.profileSelect = container.querySelector<HTMLSelectElement>("#s-profile-select")!;
+    this.profileNewBtn = container.querySelector<HTMLButtonElement>("#s-profile-new")!;
+    this.profileDeleteBtn = container.querySelector<HTMLButtonElement>("#s-profile-delete")!;
 
     this.bindEvents();
   }
 
   async open(): Promise<void> {
     try {
-      const [llm, general] = await Promise.all([
-        rpc<LLMSettings>("settings.getLLM", {}),
-        rpc<{ normalizeOnSave: boolean; autoUpdate: boolean; renderConfig: string; renderConfigUsername: string; renderConfigPassword: string; version: string }>("settings.get", {}),
+      const [profiles, general] = await Promise.all([
+        rpc<Profile[]>("settings.listProfiles", {}),
+        rpc<{ normalizeOnSave: boolean; autoUpdate: boolean; version: string; activeProfile?: string }>("settings.get", {}),
       ]);
-      this.fillForm(llm);
+      this.profiles = profiles ?? [];
+      this.rebuildProfileSelect(general.activeProfile);
+      this.fillFormFromCurrentProfile();
       (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked =
         general.normalizeOnSave !== false;
       (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked =
         general.autoUpdate !== false;
-      (this.form.querySelector("#s-render-config") as HTMLInputElement).value =
-        general.renderConfig || "";
-      (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value =
-        general.renderConfigUsername || "";
-      (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value =
-        general.renderConfigPassword || "";
       this.versionLabel.textContent = general.version || "dev";
     } catch {
-      (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked = true;
-      (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked = true;
-      (this.form.querySelector("#s-render-config") as HTMLInputElement).value = "";
-      (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value = "";
-      (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value = "";
       this.versionLabel.textContent = "dev";
     }
+    this.testStatus.textContent = "";
+    this.testStatus.className = "settings-test-status";
     this.updateStatus.textContent = "";
     this.updateStatus.className = "settings-test-status";
     this.updateBtn.textContent = "Vérifier les mises à jour";
     this.updateBtn.onclick = null;
+    this.switchTab(this.activeTab);
     this.modal.classList.add("open");
-    // Focus le premier champ interactif
-    const firstInput = this.modal.querySelector<HTMLElement>("select, input, button");
+    const firstInput = this.modal.querySelector<HTMLElement>(".settings-tab-panel.active select, .settings-tab-panel.active input, .settings-tab-panel.active button");
     firstInput?.focus();
   }
 
@@ -76,43 +88,86 @@ export class SettingsModal {
     this.updateStatus.className = "settings-test-status";
   }
 
-  private fillForm(s: LLMSettings): void {
-    (this.form.querySelector("#s-provider") as HTMLSelectElement).value = s.provider || "openai";
-    (this.form.querySelector("#s-baseurl") as HTMLInputElement).value = s.baseURL || "";
-    (this.form.querySelector("#s-apikey") as HTMLInputElement).value = s.apiKey || "";
-    (this.form.querySelector("#s-model") as HTMLInputElement).value = s.model || "";
-    (this.form.querySelector("#s-max-iter") as HTMLInputElement).value = String(s.maxIterations || 20);
-    (this.form.querySelector("#s-max-tokens") as HTMLInputElement).value = String(s.maxTokens || 80000);
+  private rebuildProfileSelect(activeProfileName?: string): void {
+    this.profileSelect.innerHTML = "";
+    for (const p of this.profiles) {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = p.name;
+      this.profileSelect.appendChild(opt);
+    }
+    const target = activeProfileName ?? this.profiles[0]?.name ?? "";
+    this.profileSelect.value = target;
+    this.currentProfileName = this.profileSelect.value;
+    this.profileDeleteBtn.disabled = this.profiles.length <= 1;
   }
 
-  private collectForm(): LLMSettings {
+  private fillFormFromCurrentProfile(): void {
+    const p = this.profiles.find((x) => x.name === this.currentProfileName);
+    if (!p) return;
+    (this.form.querySelector("#s-provider") as HTMLSelectElement).value = p.llm.provider || "openai";
+    (this.form.querySelector("#s-baseurl") as HTMLInputElement).value = p.llm.baseURL || "";
+    (this.form.querySelector("#s-apikey") as HTMLInputElement).value = p.llm.apiKey || "";
+    (this.form.querySelector("#s-model") as HTMLInputElement).value = p.llm.model || "";
+    (this.form.querySelector("#s-max-iter") as HTMLInputElement).value = String(p.llm.maxIterations || 20);
+    (this.form.querySelector("#s-max-tokens") as HTMLInputElement).value = String(p.llm.maxTokens || 80000);
+    (this.form.querySelector("#s-system-prompt") as HTMLTextAreaElement).value = p.systemPrompt || "";
+    (this.form.querySelector("#s-render-config") as HTMLInputElement).value = p.renderConfig || "";
+    (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value = p.renderConfigUsername || "";
+    (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value = p.renderConfigPassword || "";
+  }
+
+  private collectCurrentProfile(): Profile {
     return {
-      provider: (this.form.querySelector("#s-provider") as HTMLSelectElement).value,
-      baseURL: (this.form.querySelector("#s-baseurl") as HTMLInputElement).value.trim(),
-      apiKey: (this.form.querySelector("#s-apikey") as HTMLInputElement).value.trim(),
-      model: (this.form.querySelector("#s-model") as HTMLInputElement).value.trim(),
-      maxIterations: parseInt((this.form.querySelector("#s-max-iter") as HTMLInputElement).value, 10) || 20,
-      maxTokens: parseInt((this.form.querySelector("#s-max-tokens") as HTMLInputElement).value, 10) || 80000,
+      name: this.currentProfileName,
+      llm: {
+        provider: (this.form.querySelector("#s-provider") as HTMLSelectElement).value,
+        baseURL: (this.form.querySelector("#s-baseurl") as HTMLInputElement).value.trim(),
+        apiKey: (this.form.querySelector("#s-apikey") as HTMLInputElement).value.trim(),
+        model: (this.form.querySelector("#s-model") as HTMLInputElement).value.trim(),
+        maxIterations: parseInt((this.form.querySelector("#s-max-iter") as HTMLInputElement).value, 10) || 20,
+        maxTokens: parseInt((this.form.querySelector("#s-max-tokens") as HTMLInputElement).value, 10) || 80000,
+      },
+      systemPrompt: (this.form.querySelector("#s-system-prompt") as HTMLTextAreaElement).value.trim(),
+      renderConfig: (this.form.querySelector("#s-render-config") as HTMLInputElement).value.trim(),
+      renderConfigUsername: (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value.trim(),
+      renderConfigPassword: (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value,
     };
+  }
+
+  private switchTab(name: string): void {
+    this.activeTab = name;
+    this.modal.querySelectorAll<HTMLElement>(".settings-tab").forEach((btn) => {
+      const active = btn.dataset.tab === name;
+      btn.classList.toggle("active", active);
+      btn.setAttribute("aria-selected", String(active));
+    });
+    this.modal.querySelectorAll<HTMLElement>(".settings-tab-panel").forEach((panel) => {
+      panel.classList.toggle("active", panel.dataset.panel === name);
+    });
+    // Boutons footer contextuels
+    this.testBtn.style.display = name === "llm" ? "" : "none";
+    this.updateBtn.style.display = name === "general" ? "" : "none";
   }
 
   private bindEvents(): void {
     const closeBtn = this.modal.querySelector(".settings-close-btn");
     closeBtn?.addEventListener("click", () => this.close());
 
-    // Clic en dehors de la modale
+    this.modal.querySelectorAll<HTMLButtonElement>(".settings-tab").forEach((tab) => {
+      tab.addEventListener("click", () => this.switchTab(tab.dataset.tab!));
+    });
+
     this.modal.addEventListener("click", (e) => {
       if (e.target === this.modal) this.close();
     });
 
-    // Escape ferme la modale
     this.modal.addEventListener("keydown", (e) => {
       if (e.key === "Escape") {
         e.stopPropagation();
         this.close();
         return;
       }
-      // Focus trap : Tab / Shift+Tab reste dans la modale
       if (e.key === "Tab") {
         const focusable = Array.from(
           this.modal.querySelectorAll<HTMLElement>(
@@ -123,21 +178,66 @@ export class SettingsModal {
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
         if (e.shiftKey) {
-          if (document.activeElement === first) {
-            e.preventDefault();
-            last.focus();
-          }
+          if (document.activeElement === first) { e.preventDefault(); last.focus(); }
         } else {
-          if (document.activeElement === last) {
-            e.preventDefault();
-            first.focus();
-          }
+          if (document.activeElement === last) { e.preventDefault(); first.focus(); }
         }
       }
     });
 
+    // Changement de profil sélectionné
+    this.profileSelect.addEventListener("change", () => {
+      this.currentProfileName = this.profileSelect.value;
+      this.fillFormFromCurrentProfile();
+      this.testStatus.textContent = "";
+      this.testStatus.className = "settings-test-status";
+    });
+
+    // Nouveau profil
+    this.profileNewBtn.addEventListener("click", async () => {
+      const name = prompt("Nom du nouveau profil :");
+      if (!name?.trim()) return;
+      const trimmedName = name.trim();
+      if (this.profiles.some((p) => p.name === trimmedName)) {
+        alert(`Un profil nommé « ${trimmedName} » existe déjà.`);
+        return;
+      }
+      const newProfile: Profile = {
+        name: trimmedName,
+        llm: { provider: "openai", baseURL: "https://api.openai.com/v1", apiKey: "", model: "", maxIterations: 20, maxTokens: 80000 },
+        systemPrompt: "",
+        renderConfig: "",
+        renderConfigUsername: "",
+        renderConfigPassword: "",
+      };
+      try {
+        await rpc("settings.createProfile", newProfile);
+        this.profiles.push(newProfile);
+        this.rebuildProfileSelect(trimmedName);
+        this.fillFormFromCurrentProfile();
+      } catch (err) {
+        alert("Impossible de créer le profil : " + String(err));
+      }
+    });
+
+    // Supprimer profil
+    this.profileDeleteBtn.addEventListener("click", async () => {
+      if (this.profiles.length <= 1) return;
+      if (!confirm(`Supprimer le profil « ${this.currentProfileName} » ?`)) return;
+      const nameToDelete = this.currentProfileName;
+      try {
+        await rpc("settings.deleteProfile", { name: nameToDelete });
+        this.profiles = this.profiles.filter((p) => p.name !== nameToDelete);
+        this.rebuildProfileSelect(this.profiles[0]?.name);
+        this.fillFormFromCurrentProfile();
+      } catch (err) {
+        alert("Impossible de supprimer le profil : " + String(err));
+      }
+    });
+
+    // Test connexion
     this.testBtn.addEventListener("click", async () => {
-      await this.save();
+      await this.saveCurrentProfile();
       this.testStatus.textContent = "Test en cours…";
       this.testStatus.className = "settings-test-status";
       try {
@@ -151,11 +251,13 @@ export class SettingsModal {
       }
     });
 
+    // Enregistrer
     this.saveBtn.addEventListener("click", async () => {
       await this.save();
       this.close();
     });
 
+    // Vérifier mises à jour
     this.updateBtn.addEventListener("click", async () => {
       this.updateStatus.textContent = "Vérification en cours…";
       this.updateStatus.className = "settings-test-status";
@@ -190,7 +292,7 @@ export class SettingsModal {
       }
     });
 
-    // Mettre à jour la valeur par défaut de baseURL selon le provider
+    // Mettre à jour baseURL par défaut selon le provider
     const providerSelect = this.form.querySelector("#s-provider") as HTMLSelectElement;
     providerSelect.addEventListener("change", () => {
       const baseURLInput = this.form.querySelector("#s-baseurl") as HTMLInputElement;
@@ -200,16 +302,24 @@ export class SettingsModal {
     });
   }
 
+  private async saveCurrentProfile(): Promise<void> {
+    const profile = this.collectCurrentProfile();
+    try {
+      await rpc("settings.updateProfile", profile);
+      const idx = this.profiles.findIndex((p) => p.name === profile.name);
+      if (idx >= 0) this.profiles[idx] = profile;
+    } catch (err) {
+      console.error("saveCurrentProfile failed", err);
+    }
+  }
+
   private async save(): Promise<void> {
     const normalizeOnSave = (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked;
     const autoUpdate = (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked;
-    const renderConfig = (this.form.querySelector("#s-render-config") as HTMLInputElement).value.trim();
-    const renderConfigUsername = (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value.trim();
-    const renderConfigPassword = (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value;
     try {
       await Promise.all([
-        rpc("settings.saveLLM", this.collectForm()),
-        rpc("settings.saveGeneral", { normalizeOnSave, autoUpdate, renderConfig, renderConfigUsername, renderConfigPassword }),
+        this.saveCurrentProfile(),
+        rpc("settings.saveGeneral", { normalizeOnSave, autoUpdate }),
       ]);
     } catch (err) {
       console.error("save settings failed", err);
