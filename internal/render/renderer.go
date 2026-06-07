@@ -231,8 +231,13 @@ func RenderPDF(ctx context.Context, content []byte, filePath, workspaceRoot, con
 
 	cfg := defaultRenderConfig()
 	if configURL != "" {
+		resolvedConfigURL := configURL
+		if !resolver.Path(configURL).IsAbs() {
+			resolvedConfigURL = filepath.Join(workspaceRoot, configURL)
+		}
+
 		var err error
-		cfg, err = loadConfig(ctx, configURL, configUsername, configPassword)
+		cfg, err = loadConfig(ctx, resolvedConfigURL, configUsername, configPassword)
 		if err != nil {
 			return nil, err
 		}
