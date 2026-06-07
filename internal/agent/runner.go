@@ -70,6 +70,7 @@ func (r *Runner) Run(
 	toolCtx := tools.WithSessionContext(ctx, sc)
 
 	systemPrompt := buildSystemPrompt(sess, wsIdx, r.systemPrompt)
+	slog.Debug("system prompt generated", "fileID", sess.FileID, "length", len(systemPrompt), "prompt", systemPrompt)
 
 	maxIter := r.llmSettings.MaxIterations
 	if maxIter <= 0 {
@@ -203,6 +204,11 @@ func (r *Runner) buildTools() []llm.Tool {
 	}
 }
 
+// maxInlinedSectionChars borne la taille du contenu de section inclus directement
+// dans le system prompt (cohérent avec maxDocumentChars de l'outil read_document) :
+// au-delà, le system prompt risquerait de dépasser la fenêtre de contexte du modèle.
+const maxInlinedSectionChars = 50_000
+
 // buildSystemPrompt construit le prompt système avec ToC, section active et index workspace.
 // customPrompt est le prompt personnalisé du profil actif ; s'il est non vide, il est
 // préfixé avant les instructions techniques.
@@ -228,7 +234,12 @@ Fichier actif : `)
 		sb.WriteString(fmt.Sprintf("Heading : %s %s\n", strings.Repeat("#", section.HeadingLevel), section.HeadingTitle))
 		sb.WriteString(fmt.Sprintf("Lignes : %d à %d\n", section.StartLine, section.EndLine))
 		sb.WriteString("\nContenu :\n")
-		sb.WriteString(section.RawContent)
+		rawContent := section.RawContent
+		if len(rawContent) > maxInlinedSectionChars {
+			rawContent = rawContent[:maxInlinedSectionChars] +
+				"\n\n[... contenu tronqué, utilise l'outil read_section ou read_document pour lire la suite ...]"
+		}
+		sb.WriteString(rawContent)
 	} else {
 		sb.WriteString("\n\nAucune section spécifique n'est sélectionnée. Tu peux lire et modifier n'importe quelle partie du document.")
 	}

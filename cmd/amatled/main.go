@@ -16,16 +16,30 @@ import (
 var version = "dev"
 
 func main() {
-	logFile := setupLogger()
-	if logFile != nil {
-		defer logFile.Close()
-	}
+	var logFile *os.File
 
 	application := &cli.App{
 		Name:      "amatled",
 		Usage:     "Éditeur Markdown desktop assisté par IA",
 		ArgsUsage: "[répertoire]",
 		Version:   version,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "log-level",
+				Usage: "Niveau de log (debug, info, warn, error)",
+				Value: "info",
+			},
+		},
+		Before: func(ctx *cli.Context) error {
+			logFile = setupLogger(ctx.String("log-level"))
+			return nil
+		},
+		After: func(ctx *cli.Context) error {
+			if logFile != nil {
+				return logFile.Close()
+			}
+			return nil
+		},
 		Action: func(ctx *cli.Context) error {
 			dir := ctx.Args().First()
 			if dir == "" {
@@ -45,7 +59,17 @@ func main() {
 	}
 }
 
-func setupLogger() *os.File {
+// setupLogger configure le logger par défaut pour écrire à la fois sur stderr
+// et dans un fichier de log utilisateur, au niveau donné (debug, info, warn, error).
+// En cas de niveau invalide, retombe sur le niveau info.
+func setupLogger(logLevel string) *os.File {
+	level := slog.LevelInfo
+	if logLevel != "" {
+		if err := level.UnmarshalText([]byte(logLevel)); err != nil {
+			slog.Warn("niveau de log invalide, utilisation du niveau info", "logLevel", logLevel, "err", err)
+		}
+	}
+
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return nil
@@ -59,6 +83,6 @@ func setupLogger() *os.File {
 		return nil
 	}
 	w := io.MultiWriter(os.Stderr, f)
-	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: slog.LevelInfo})))
+	slog.SetDefault(slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level})))
 	return f
 }

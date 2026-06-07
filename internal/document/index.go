@@ -22,9 +22,22 @@ type FileIndex struct {
 
 type WorkspaceIndex struct {
 	Files []FileIndex
+	// Truncated indique que l'indexation s'est arrêtée avant d'avoir parcouru
+	// tout le workspace (limites maxWorkspaceIndexFiles / maxWorkspaceIndexSections).
+	Truncated bool
 }
 
-// BuildWorkspaceIndex scanne tous les .md du workspace et extrait les headings.
+// maxWorkspaceIndexFiles et maxWorkspaceIndexSections bornent le coût de
+// construction de l'index (lecture + parsing de chaque fichier à chaque run de
+// l'agent) et la taille du résultat injecté dans le system prompt : sans limite,
+// un workspace comportant un grand nombre de documents rendrait l'indexation
+// coûteuse et ferait dépasser la fenêtre de contexte du modèle.
+const (
+	maxWorkspaceIndexFiles    = 200
+	maxWorkspaceIndexSections = 2000
+)
+
+// BuildWorkspaceIndex scanne les .md du workspace et extrait les headings.
 // Appelé à chaque run de l'agent pour garantir la fraîcheur de l'index.
 func BuildWorkspaceIndex(ws *workspace.Workspace) (*WorkspaceIndex, error) {
 	entries, err := ws.ListFiles()
@@ -33,12 +46,18 @@ func BuildWorkspaceIndex(ws *workspace.Workspace) (*WorkspaceIndex, error) {
 	}
 	paths := flatFiles(entries)
 	idx := &WorkspaceIndex{}
+	sectionCount := 0
 	for _, p := range paths {
+		if len(idx.Files) >= maxWorkspaceIndexFiles || sectionCount >= maxWorkspaceIndexSections {
+			idx.Truncated = true
+			break
+		}
 		content, err := ws.ReadFile(p)
 		if err != nil {
 			continue
 		}
 		sections := extractSectionEntries(content)
+		sectionCount += len(sections)
 		idx.Files = append(idx.Files, FileIndex{Path: p, Sections: sections})
 	}
 	return idx, nil
@@ -107,6 +126,9 @@ func FormatWorkspaceIndex(idx *WorkspaceIndex) string {
 			sb.WriteString(s.Title)
 			sb.WriteString("\n")
 		}
+	}
+	if idx.Truncated {
+		sb.WriteString("\n[... index tronqué (workspace volumineux), utilise list_workspace_sections pour explorer le reste ...]\n")
 	}
 	return sb.String()
 }
