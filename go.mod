@@ -11,7 +11,7 @@ require (
 
 require (
 	github.com/Bornholm/amatl v0.31.0
-	github.com/bornholm/genai v0.25.0
+	github.com/bornholm/genai v0.25.2
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/sqweek/dialog v0.0.0-20260123140253-64c163d53aac
 	github.com/yuin/goldmark v1.7.13
