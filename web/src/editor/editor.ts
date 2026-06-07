@@ -247,12 +247,29 @@ export class Editor {
   private applyRemoteContent(newContent: string): void {
     if (!this.view) return;
     const curLen = this.view.state.doc.length;
+    const scrollTop = this.view.scrollDOM.scrollTop;
+    const cursorPos = this.view.state.selection.main.head;
+
     this.view.dispatch({
       changes: { from: 0, to: curLen, insert: newContent },
       annotations: remoteAnnotation.of(true),
     });
-    // Réinitialiser le pendingOldContent pour que le prochain sync parte
-    // du contenu courant et non d'un état obsolète.
+
+    const newLen = this.view.state.doc.length;
+    const restorePos = Math.min(cursorPos, newLen);
+    this.view.dispatch({
+      selection: { anchor: restorePos },
+      annotations: remoteAnnotation.of(true),
+    });
+
+    if (scrollTop > 0) {
+      requestAnimationFrame(() => {
+        if (this.view) {
+          this.view.scrollDOM.scrollTop = Math.min(scrollTop, this.view.scrollDOM.scrollHeight);
+        }
+      });
+    }
+
     this.pendingOldContent = null;
   }
 
