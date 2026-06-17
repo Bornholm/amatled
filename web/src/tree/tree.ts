@@ -27,7 +27,18 @@ export class FileTree {
     this.onCreateFile = onCreateFile;
   }
 
+  private collectDirPaths(entries: FileEntry[], acc: Set<string>): void {
+    for (const e of entries) {
+      if (e.isDir) {
+        acc.add(e.path);
+        if (e.children) this.collectDirPaths(e.children, acc);
+      }
+    }
+  }
+
   setFiles(files: FileEntry[]): void {
+    this.collapsedDirs = new Set();
+    this.collectDirPaths(files, this.collapsedDirs);
     this.container.innerHTML = "";
     if (!files || files.length === 0) {
       const empty = document.createElement("div");
