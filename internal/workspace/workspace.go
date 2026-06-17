@@ -26,7 +26,8 @@ var ignoredDirs = map[string]bool{
 
 // WorkspaceConfig contient les préférences persistées par workspace.
 type WorkspaceConfig struct {
-	ActiveProfile string `json:"activeProfile,omitempty"`
+	ActiveProfile      string `json:"activeProfile,omitempty"`
+	ActiveRenderPreset string `json:"activeRenderPreset,omitempty"`
 }
 
 // LoadConfig charge la config workspace depuis .amatled/config.json.

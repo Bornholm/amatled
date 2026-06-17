@@ -41,9 +41,10 @@ type Bridge struct {
 	ui       lorca.UI
 	handlers map[string]HandlerFunc
 
-	workspace              *workspace.Workspace
-	workspaceRoot          string
-	workspaceActiveProfile string // profil actif pour le workspace courant
+	workspace                  *workspace.Workspace
+	workspaceRoot              string
+	workspaceActiveProfile     string // profil actif pour le workspace courant
+	workspaceActiveRenderPreset string // préset de rendu actif pour le workspace courant
 	settings               *settings.Settings
 	sessions               *editor.SessionManager
 	version                string
@@ -101,12 +102,18 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 	b.handle("workspace.deleteFile", b.handleDeleteFile)
 	b.handle("workspace.getActiveProfile", b.handleGetActiveProfile)
 	b.handle("workspace.setActiveProfile", b.handleSetActiveProfile)
+	b.handle("workspace.getActiveRenderPreset", b.handleGetActiveRenderPreset)
+	b.handle("workspace.setActiveRenderPreset", b.handleSetActiveRenderPreset)
 	// Settings
 	b.handle("settings.get", b.handleGetSettings)
 	b.handle("settings.listProfiles", b.handleListProfiles)
 	b.handle("settings.createProfile", b.handleCreateProfile)
 	b.handle("settings.updateProfile", b.handleUpdateProfile)
 	b.handle("settings.deleteProfile", b.handleDeleteProfile)
+	b.handle("settings.listRenderPresets", b.handleListRenderPresets)
+	b.handle("settings.createRenderPreset", b.handleCreateRenderPreset)
+	b.handle("settings.updateRenderPreset", b.handleUpdateRenderPreset)
+	b.handle("settings.deleteRenderPreset", b.handleDeleteRenderPreset)
 	// Editor / historique
 	b.handle("editor.openFile", b.handleEditorOpenFile)
 	b.handle("editor.applyLocalChanges", b.handleApplyLocalChanges)
@@ -198,7 +205,6 @@ func (b *Bridge) resolveActiveProfile() settings.Profile {
 	}
 	out := *p
 	out.LLM.APIKey, _ = appkeyring.GetProfileAPIKey(p.Name)
-	out.RenderConfigPassword, _ = appkeyring.GetProfileRenderPassword(p.Name)
 	return out
 }
 
@@ -211,8 +217,48 @@ func (b *Bridge) isLLMConfigured() bool {
 // profileWithSecrets retourne un profil de la liste avec ses secrets depuis le keyring.
 func profileWithSecrets(p settings.Profile) settings.Profile {
 	p.LLM.APIKey, _ = appkeyring.GetProfileAPIKey(p.Name)
-	p.RenderConfigPassword, _ = appkeyring.GetProfileRenderPassword(p.Name)
 	return p
+}
+
+// ─── Helpers préset de rendu actif ───────────────────────────────────────────
+
+// resolveActiveRenderPresetName retourne le nom du préset de rendu actif :
+// d'abord la valeur per-workspace, sinon le global.
+func (b *Bridge) resolveActiveRenderPresetName() string {
+	if b.workspaceActiveRenderPreset != "" {
+		return b.workspaceActiveRenderPreset
+	}
+	return b.settings.ActiveRenderPreset
+}
+
+// resolveActiveRenderPreset retourne le préset de rendu actif avec son mot de passe depuis le keyring.
+// Retourne nil si aucun préset n'est actif ou si le nom ne correspond à aucun préset connu.
+func (b *Bridge) resolveActiveRenderPreset() *settings.RenderPreset {
+	name := b.resolveActiveRenderPresetName()
+	if name == "" {
+		return nil
+	}
+	rp := b.settings.GetRenderPreset(name)
+	if rp == nil {
+		return nil
+	}
+	out := *rp
+	out.RenderConfigPassword, _ = appkeyring.GetRenderPresetPassword(rp.Name)
+	return &out
+}
+
+// renderPresetWithSecrets retourne un préset avec son mot de passe depuis le keyring.
+func renderPresetWithSecrets(rp settings.RenderPreset) settings.RenderPreset {
+	rp.RenderConfigPassword, _ = appkeyring.GetRenderPresetPassword(rp.Name)
+	return rp
+}
+
+// currentWorkspaceConfig construit la config workspace depuis l'état courant du bridge.
+func (b *Bridge) currentWorkspaceConfig() *workspace.WorkspaceConfig {
+	return &workspace.WorkspaceConfig{
+		ActiveProfile:      b.workspaceActiveProfile,
+		ActiveRenderPreset: b.workspaceActiveRenderPreset,
+	}
 }
 
 // ─── Workspace handlers ───────────────────────────────────────────────────────
@@ -250,11 +296,12 @@ func (b *Bridge) handleOpenWorkspace(paramsJSON string) (any, error) {
 		slog.Warn("failed to save settings", "err", err)
 	}
 
-	// Charger le profil actif du workspace
-	if cfg, err := ws.LoadConfig(); err == nil && cfg.ActiveProfile != "" {
+	// Charger les préférences du workspace
+	b.workspaceActiveProfile = ""
+	b.workspaceActiveRenderPreset = ""
+	if cfg, err := ws.LoadConfig(); err == nil {
 		b.workspaceActiveProfile = cfg.ActiveProfile
-	} else {
-		b.workspaceActiveProfile = ""
+		b.workspaceActiveRenderPreset = cfg.ActiveRenderPreset
 	}
 
 	files, err := ws.ListFiles()
@@ -263,8 +310,12 @@ func (b *Bridge) handleOpenWorkspace(paramsJSON string) (any, error) {
 	}
 	b.startWatcher()
 
-	activeProfile := b.resolveActiveProfileName()
-	return map[string]any{"files": files, "rootPath": ws.RootPath, "activeProfile": activeProfile}, nil
+	return map[string]any{
+		"files":               files,
+		"rootPath":            ws.RootPath,
+		"activeProfile":       b.resolveActiveProfileName(),
+		"activeRenderPreset":  b.resolveActiveRenderPresetName(),
+	}, nil
 }
 
 func (b *Bridge) handleListFiles(_ string) (any, error) {
@@ -370,8 +421,7 @@ func (b *Bridge) handleSetActiveProfile(paramsJSON string) (any, error) {
 		slog.Warn("failed to save settings after setActiveProfile", "err", err)
 	}
 	if b.workspace != nil {
-		cfg := &workspace.WorkspaceConfig{ActiveProfile: params.Name}
-		if err := b.workspace.SaveConfig(cfg); err != nil {
+		if err := b.workspace.SaveConfig(b.currentWorkspaceConfig()); err != nil {
 			slog.Warn("failed to save workspace config", "err", err)
 		}
 	}
@@ -572,15 +622,20 @@ func (b *Bridge) handleDocumentRenderPDF(paramsJSON string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
 	}
-	profile := b.resolveActiveProfile()
+	var renderConfig, renderConfigUsername, renderConfigPassword string
+	if rp := b.resolveActiveRenderPreset(); rp != nil {
+		renderConfig = rp.RenderConfig
+		renderConfigUsername = rp.RenderConfigUsername
+		renderConfigPassword = rp.RenderConfigPassword
+	}
 	pdf, err := render.RenderPDF(
 		context.Background(),
 		[]byte(sess.Content()),
 		sess.FileID,
 		b.workspaceRoot,
-		profile.RenderConfig,
-		profile.RenderConfigUsername,
-		profile.RenderConfigPassword,
+		renderConfig,
+		renderConfigUsername,
+		renderConfigPassword,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("render pdf: %w", err)
@@ -602,15 +657,20 @@ func (b *Bridge) handleDocumentExportPDF(paramsJSON string) (any, error) {
 	if !ok {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
 	}
-	profile := b.resolveActiveProfile()
+	var renderConfig, renderConfigUsername, renderConfigPassword string
+	if rp := b.resolveActiveRenderPreset(); rp != nil {
+		renderConfig = rp.RenderConfig
+		renderConfigUsername = rp.RenderConfigUsername
+		renderConfigPassword = rp.RenderConfigPassword
+	}
 	pdf, err := render.RenderPDF(
 		context.Background(),
 		[]byte(sess.Content()),
 		sess.FileID,
 		b.workspaceRoot,
-		profile.RenderConfig,
-		profile.RenderConfigUsername,
-		profile.RenderConfigPassword,
+		renderConfig,
+		renderConfigUsername,
+		renderConfigPassword,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("render pdf: %w", err)
@@ -740,11 +800,7 @@ func (b *Bridge) handleCreateProfile(paramsJSON string) (any, error) {
 	if err := appkeyring.SetProfileAPIKey(p.Name, p.LLM.APIKey); err != nil {
 		slog.Warn("keyring set api key failed", "profile", p.Name, "err", err)
 	}
-	if err := appkeyring.SetProfileRenderPassword(p.Name, p.RenderConfigPassword); err != nil {
-		slog.Warn("keyring set render password failed", "profile", p.Name, "err", err)
-	}
 	p.LLM.APIKey = ""
-	p.RenderConfigPassword = ""
 	b.settings.Profiles = append(b.settings.Profiles, p)
 	if b.settings.ActiveProfile == "" {
 		b.settings.ActiveProfile = p.Name
@@ -770,11 +826,7 @@ func (b *Bridge) handleUpdateProfile(paramsJSON string) (any, error) {
 			if err := appkeyring.SetProfileAPIKey(p.Name, p.LLM.APIKey); err != nil {
 				slog.Warn("keyring set api key failed", "profile", p.Name, "err", err)
 			}
-			if err := appkeyring.SetProfileRenderPassword(p.Name, p.RenderConfigPassword); err != nil {
-				slog.Warn("keyring set render password failed", "profile", p.Name, "err", err)
-			}
 			p.LLM.APIKey = ""
-			p.RenderConfigPassword = ""
 			b.settings.Profiles[i] = p
 			found = true
 			break
@@ -823,6 +875,130 @@ func (b *Bridge) handleDeleteProfile(paramsJSON string) (any, error) {
 		return nil, fmt.Errorf("save settings: %w", err)
 	}
 	go b.Emit("profiles.updated", nil)
+	return map[string]bool{"ok": true}, nil
+}
+
+// ─── Render preset handlers ───────────────────────────────────────────────────
+
+func (b *Bridge) handleGetActiveRenderPreset(_ string) (any, error) {
+	return map[string]string{"name": b.resolveActiveRenderPresetName()}, nil
+}
+
+func (b *Bridge) handleSetActiveRenderPreset(paramsJSON string) (any, error) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if params.Name != "" && b.settings.GetRenderPreset(params.Name) == nil {
+		return nil, fmt.Errorf("préset de rendu inconnu : %s", params.Name)
+	}
+	b.workspaceActiveRenderPreset = params.Name
+	b.settings.ActiveRenderPreset = params.Name
+	if err := b.settings.Save(); err != nil {
+		slog.Warn("failed to save settings after setActiveRenderPreset", "err", err)
+	}
+	if b.workspace != nil {
+		if err := b.workspace.SaveConfig(b.currentWorkspaceConfig()); err != nil {
+			slog.Warn("failed to save workspace config after setActiveRenderPreset", "err", err)
+		}
+	}
+	go b.Emit("renderPreset.changed", map[string]string{"name": params.Name})
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleListRenderPresets(_ string) (any, error) {
+	presets := make([]settings.RenderPreset, len(b.settings.RenderPresets))
+	for i, rp := range b.settings.RenderPresets {
+		presets[i] = renderPresetWithSecrets(rp)
+	}
+	return presets, nil
+}
+
+func (b *Bridge) handleCreateRenderPreset(paramsJSON string) (any, error) {
+	var rp settings.RenderPreset
+	if err := json.Unmarshal([]byte(paramsJSON), &rp); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if rp.Name == "" {
+		return nil, fmt.Errorf("le nom du préset est requis")
+	}
+	if b.settings.GetRenderPreset(rp.Name) != nil {
+		return nil, fmt.Errorf("un préset nommé %q existe déjà", rp.Name)
+	}
+	if err := appkeyring.SetRenderPresetPassword(rp.Name, rp.RenderConfigPassword); err != nil {
+		slog.Warn("keyring set render preset password failed", "preset", rp.Name, "err", err)
+	}
+	rp.RenderConfigPassword = ""
+	b.settings.RenderPresets = append(b.settings.RenderPresets, rp)
+	if err := b.settings.Save(); err != nil {
+		return nil, fmt.Errorf("save settings: %w", err)
+	}
+	go b.Emit("renderPresets.updated", nil)
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleUpdateRenderPreset(paramsJSON string) (any, error) {
+	var rp settings.RenderPreset
+	if err := json.Unmarshal([]byte(paramsJSON), &rp); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	if rp.Name == "" {
+		return nil, fmt.Errorf("le nom du préset est requis")
+	}
+	found := false
+	for i := range b.settings.RenderPresets {
+		if b.settings.RenderPresets[i].Name == rp.Name {
+			if err := appkeyring.SetRenderPresetPassword(rp.Name, rp.RenderConfigPassword); err != nil {
+				slog.Warn("keyring set render preset password failed", "preset", rp.Name, "err", err)
+			}
+			rp.RenderConfigPassword = ""
+			b.settings.RenderPresets[i] = rp
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, fmt.Errorf("préset inconnu : %s", rp.Name)
+	}
+	if err := b.settings.Save(); err != nil {
+		return nil, fmt.Errorf("save settings: %w", err)
+	}
+	return map[string]bool{"ok": true}, nil
+}
+
+func (b *Bridge) handleDeleteRenderPreset(paramsJSON string) (any, error) {
+	var params struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	idx := -1
+	for i, rp := range b.settings.RenderPresets {
+		if rp.Name == params.Name {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, fmt.Errorf("préset inconnu : %s", params.Name)
+	}
+	if err := appkeyring.DeleteRenderPreset(params.Name); err != nil {
+		slog.Warn("keyring delete render preset failed", "preset", params.Name, "err", err)
+	}
+	b.settings.RenderPresets = append(b.settings.RenderPresets[:idx], b.settings.RenderPresets[idx+1:]...)
+	if b.settings.ActiveRenderPreset == params.Name {
+		b.settings.ActiveRenderPreset = ""
+	}
+	if b.workspaceActiveRenderPreset == params.Name {
+		b.workspaceActiveRenderPreset = ""
+	}
+	if err := b.settings.Save(); err != nil {
+		return nil, fmt.Errorf("save settings: %w", err)
+	}
+	go b.Emit("renderPresets.updated", nil)
 	return map[string]bool{"ok": true}, nil
 }
 

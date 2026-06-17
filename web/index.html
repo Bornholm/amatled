@@ -33,6 +33,7 @@
         </ul>
       </div>
       <div class="menubar-spacer"></div>
+      <div id="render-preset-bar"></div>
       <div id="profile-bar"></div>
       <button class="btn btn--icon" id="btn-settings" title="Paramètres">⚙</button>
     </nav>
@@ -87,20 +88,23 @@
         <h2>Paramètres</h2>
         <button class="settings-close-btn btn btn--icon" aria-label="Fermer">✕</button>
       </div>
-      <div class="settings-profiles-bar">
-        <select id="s-profile-select" class="form-control settings-profile-select"></select>
-        <button type="button" id="s-profile-new" class="btn btn--secondary" title="Nouveau profil">+</button>
-        <button type="button" id="s-profile-delete" class="btn btn--secondary" title="Supprimer le profil">×</button>
-      </div>
-      <div class="settings-tabs" role="tablist">
-        <button class="settings-tab active" data-tab="llm" role="tab" aria-selected="true">LLM</button>
-        <button class="settings-tab" data-tab="redaction" role="tab" aria-selected="false">Rédaction</button>
-        <button class="settings-tab" data-tab="general" role="tab" aria-selected="false">Général</button>
-      </div>
-      <form id="settings-form" class="settings-form">
 
-        <!-- ── Onglet LLM ── -->
-        <div class="settings-tab-panel active" data-panel="llm">
+      <!-- ── Onglets principaux ── -->
+      <div class="settings-top-tabs" role="tablist">
+        <button class="settings-top-tab active" data-top-tab="profiles" role="tab" aria-selected="true">Profils IA</button>
+        <button class="settings-top-tab" data-top-tab="rendus" role="tab" aria-selected="false">Rendus</button>
+      </div>
+
+      <!-- ── Panneau Profils IA ── -->
+      <div class="settings-top-panel active" data-top-panel="profiles">
+        <div class="settings-profiles-bar">
+          <select id="s-profile-select" class="form-control settings-profile-select"></select>
+          <button type="button" id="s-profile-new" class="btn btn--secondary" title="Nouveau profil">+</button>
+          <button type="button" id="s-profile-delete" class="btn btn--secondary" title="Supprimer le profil">×</button>
+        </div>
+        <form id="settings-form" class="settings-form">
+
+          <p class="settings-group-title">LLM</p>
           <div class="form-group">
             <label for="s-provider">Provider</label>
             <select id="s-provider" class="form-control">
@@ -133,38 +137,20 @@
             </div>
           </div>
           <div id="settings-test-status" class="settings-test-status"></div>
-        </div>
 
-        <!-- ── Onglet Rédaction ── -->
-        <div class="settings-tab-panel" data-panel="redaction">
+          <hr class="settings-divider" />
+          <p class="settings-group-title">Rédaction</p>
           <div class="form-group">
             <label for="s-system-prompt">Prompt système personnalisé</label>
             <textarea id="s-system-prompt" class="form-control" rows="6" placeholder="Instructions supplémentaires pour l'agent (ton, contraintes, contexte…)"></textarea>
           </div>
-          <hr class="settings-divider" />
-          <div class="form-group">
-            <label for="s-render-config">Fichier de configuration amatl</label>
-            <input type="url" id="s-render-config" class="form-control" placeholder="https://example.com/document.yml" />
-          </div>
-          <div class="form-group form-group--row">
-            <div class="form-group">
-              <label for="s-render-config-username">Identifiant (Basic Auth)</label>
-              <input type="text" id="s-render-config-username" class="form-control" placeholder="utilisateur" autocomplete="off" />
-            </div>
-            <div class="form-group">
-              <label for="s-render-config-password">Mot de passe (Basic Auth)</label>
-              <input type="password" id="s-render-config-password" class="form-control" placeholder="••••••••" autocomplete="off" />
-            </div>
-          </div>
-        </div>
 
-        <!-- ── Onglet Général ── -->
-        <div class="settings-tab-panel" data-panel="general">
+          <hr class="settings-divider" />
+          <p class="settings-group-title">Général</p>
           <div class="form-group form-group--checkbox">
             <input type="checkbox" id="s-normalize-on-save" />
             <label for="s-normalize-on-save">Normaliser le Markdown à la sauvegarde</label>
           </div>
-          <hr class="settings-divider" />
           <div class="form-group">
             <label>Version</label>
             <span id="s-version" class="form-version-label">…</span>
@@ -174,9 +160,38 @@
             <label for="s-auto-update">Vérifier automatiquement les mises à jour au démarrage</label>
           </div>
           <div id="s-update-status" class="settings-test-status"></div>
-        </div>
 
-      </form>
+        </form>
+      </div>
+
+      <!-- ── Panneau Rendus ── -->
+      <div class="settings-top-panel" data-top-panel="rendus">
+        <div class="settings-render-body">
+          <div class="settings-presets-bar">
+            <select id="s-preset-select" class="form-control settings-preset-select"></select>
+            <button type="button" id="s-preset-new" class="btn btn--secondary" title="Nouveau préset">+</button>
+            <button type="button" id="s-preset-delete" class="btn btn--secondary" title="Supprimer le préset">×</button>
+          </div>
+          <div id="s-preset-form" class="settings-preset-fields">
+            <div class="form-group">
+              <label for="s-render-config">Fichier de configuration amatl</label>
+              <input type="text" id="s-render-config" class="form-control" placeholder="https://example.com/document.yml ou /chemin/local/config.yml" />
+            </div>
+            <div class="form-group form-group--row">
+              <div class="form-group">
+                <label for="s-render-config-username">Identifiant (Basic Auth)</label>
+                <input type="text" id="s-render-config-username" class="form-control" placeholder="utilisateur" autocomplete="off" />
+              </div>
+              <div class="form-group">
+                <label for="s-render-config-password">Mot de passe (Basic Auth)</label>
+                <input type="password" id="s-render-config-password" class="form-control" placeholder="••••••••" autocomplete="off" />
+              </div>
+            </div>
+          </div>
+          <p id="s-preset-empty" class="settings-preset-empty hidden">Aucun préset de rendu. Cliquez sur + pour en créer un.</p>
+        </div>
+      </div>
+
       <div class="modal-footer">
         <button id="settings-update-btn" class="btn btn--secondary">Vérifier les mises à jour</button>
         <button id="settings-test-btn" class="btn btn--secondary">Tester la connexion</button>

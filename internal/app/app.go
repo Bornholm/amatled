@@ -48,11 +48,6 @@ func migrateSettingsToProfiles(s *settings.Settings) error {
 			return fmt.Errorf("store api key: %w", err)
 		}
 	}
-	if s.RenderConfigPassword != "" {
-		if err := appkeyring.SetProfileRenderPassword("Défaut", s.RenderConfigPassword); err != nil {
-			return fmt.Errorf("store render password: %w", err)
-		}
-	}
 	s.Profiles = []settings.Profile{{
 		Name: "Défaut",
 		LLM: settings.LLMSettings{
@@ -62,8 +57,6 @@ func migrateSettingsToProfiles(s *settings.Settings) error {
 			MaxIterations: s.LLM.MaxIterations,
 			MaxTokens:     s.LLM.MaxTokens,
 		},
-		RenderConfig:         s.RenderConfig,
-		RenderConfigUsername: s.RenderConfigUsername,
 	}}
 	s.ActiveProfile = "Défaut"
 	slog.Info("migrated settings to profiles")

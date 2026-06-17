@@ -32,6 +32,7 @@ interface SectionRef {
 // ── Éléments DOM ──────────────────────────────────────────────────────────────
 const btnSettings = document.getElementById("btn-settings")!;
 const mainLayout = document.getElementById("main-layout")!;
+const renderPresetBar = document.getElementById("render-preset-bar")!;
 const profileBar = document.getElementById("profile-bar")!;
 const treeFiles = document.getElementById("tree-files")!;
 const tabsBar = document.getElementById("tabs-bar")!;
@@ -121,6 +122,46 @@ profileSelectEl.addEventListener("change", async () => {
     await rpc("workspace.setActiveProfile", { name: profileSelectEl.value });
   } catch (err) {
     toast.show("Impossible de changer de profil : " + String(err), "error");
+  }
+});
+
+// ── Sélecteur de préset de rendu ─────────────────────────────────────────────
+const renderPresetSelectEl = document.createElement("select");
+renderPresetSelectEl.className = "profile-selector render-preset-selector";
+renderPresetSelectEl.title = "Configuration de rendu active";
+renderPresetBar.appendChild(renderPresetSelectEl);
+
+async function refreshRenderPresetSelector(activePresetName?: string): Promise<void> {
+  try {
+    const [presets, active] = await Promise.all([
+      rpc<{ name: string }[]>("settings.listRenderPresets", {}),
+      activePresetName !== undefined
+        ? Promise.resolve({ name: activePresetName })
+        : rpc<{ name: string }>("workspace.getActiveRenderPreset", {}),
+    ]);
+    renderPresetSelectEl.innerHTML = "";
+    const noneOpt = document.createElement("option");
+    noneOpt.value = "";
+    noneOpt.textContent = "— Aucun rendu —";
+    renderPresetSelectEl.appendChild(noneOpt);
+    for (const p of presets) {
+      const opt = document.createElement("option");
+      opt.value = p.name;
+      opt.textContent = p.name;
+      renderPresetSelectEl.appendChild(opt);
+    }
+    renderPresetSelectEl.value = active.name ?? "";
+    renderPresetBar.style.display = "";
+  } catch {
+    renderPresetBar.style.display = "none";
+  }
+}
+
+renderPresetSelectEl.addEventListener("change", async () => {
+  try {
+    await rpc("workspace.setActiveRenderPreset", { name: renderPresetSelectEl.value });
+  } catch (err) {
+    toast.show("Impossible de changer de préset de rendu : " + String(err), "error");
   }
 });
 
@@ -444,9 +485,10 @@ document.addEventListener("keydown", (e) => {
 
 // ── Événements Go → JS ───────────────────────────────────────────────────────
 bus.on("workspace.opened", (data) => {
-  const result = data as WorkspaceResult & { activeProfile?: string };
+  const result = data as WorkspaceResult & { activeProfile?: string; activeRenderPreset?: string };
   applyWorkspace(result);
   refreshProfileSelector(result.activeProfile);
+  refreshRenderPresetSelector(result.activeRenderPreset ?? "");
 });
 
 bus.on("profile.changed", (data) => {
@@ -456,6 +498,15 @@ bus.on("profile.changed", (data) => {
 
 bus.on("profiles.updated", () => {
   refreshProfileSelector();
+});
+
+bus.on("renderPreset.changed", (data) => {
+  const { name } = data as { name: string };
+  if (renderPresetSelectEl.value !== name) renderPresetSelectEl.value = name;
+});
+
+bus.on("renderPresets.updated", () => {
+  refreshRenderPresetSelector();
 });
 
 bus.on("workspace.treeUpdated", (data) => {

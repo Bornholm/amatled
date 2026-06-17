@@ -200,6 +200,16 @@ body {
   border-color: var(--accent);
 }
 
+/* Sélecteur de préset de rendu dans la menubar */
+#render-preset-bar {
+  display: flex;
+  align-items: center;
+}
+
+.render-preset-selector {
+  max-width: 180px;
+}
+
 /* Barre de profils dans la modal settings (entre les onglets et le formulaire) */
 .settings-profiles-bar {
   display: flex;
@@ -212,6 +222,24 @@ body {
 
 .settings-profile-select {
   flex: 1;
+}
+
+/* Barre de présets de rendu dans l'onglet Rendu */
+.settings-presets-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.settings-preset-select {
+  flex: 1;
+}
+
+.settings-preset-empty {
+  color: var(--fg-muted);
+  font-size: 12px;
+  margin-top: 8px;
 }
 
 .tree-panel-header {
@@ -602,7 +630,7 @@ button.btn--icon:hover { color: var(--fg); background: var(--bg-tertiary); }
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 8px;
-  width: 480px;
+  width: 520px;
   max-width: 95vw;
   max-height: 90vh;
   display: flex;
@@ -617,6 +645,7 @@ button.btn--icon:hover { color: var(--fg); background: var(--bg-tertiary); }
   justify-content: space-between;
   padding: 16px 20px;
   border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
 }
 
 .modal-header h2 {
@@ -625,41 +654,56 @@ button.btn--icon:hover { color: var(--fg); background: var(--bg-tertiary); }
   color: var(--fg);
 }
 
-/* ── Onglets de la modal ── */
-.settings-tabs {
+/* ── Onglets principaux (Profils IA / Rendus) ── */
+.settings-top-tabs {
   display: flex;
   border-bottom: 1px solid var(--border);
   padding: 0 12px;
   flex-shrink: 0;
+  background: var(--bg-tertiary);
 }
 
-.settings-tab {
-  padding: 8px 14px;
+.settings-top-tab {
+  padding: 9px 18px;
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
   color: var(--fg-muted);
   font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
   margin-bottom: -1px;
   transition: color 0.15s;
 }
 
-.settings-tab:hover { color: var(--fg); }
+.settings-top-tab:hover { color: var(--fg); }
 
-.settings-tab.active {
+.settings-top-tab.active {
   color: var(--fg);
   border-bottom-color: var(--accent);
 }
 
-.settings-tab-panel {
+.settings-top-panel {
   display: none;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
 }
 
-.settings-tab-panel.active {
+.settings-top-panel.active {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+}
+
+/* Titre de section dans le formulaire de profil */
+.settings-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-muted);
+  user-select: none;
+  margin-bottom: 2px;
 }
 
 .modal-footer {
@@ -668,13 +712,31 @@ button.btn--icon:hover { color: var(--fg); background: var(--bg-tertiary); }
   gap: 8px;
   padding: 12px 20px;
   border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.settings-render-body {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.settings-preset-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .settings-form {
   padding: 16px 20px;
   display: flex;
   flex-direction: column;
+  flex: 1;
   overflow-y: auto;
+  min-height: 0;
 }
 
 .form-group {

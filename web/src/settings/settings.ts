@@ -13,6 +13,10 @@ export interface Profile {
   name: string;
   llm: LLMSettings;
   systemPrompt: string;
+}
+
+export interface RenderPreset {
+  name: string;
   renderConfig: string;
   renderConfigUsername: string;
   renderConfigPassword: string;
@@ -30,10 +34,17 @@ export class SettingsModal {
   private profileSelect: HTMLSelectElement;
   private profileNewBtn: HTMLButtonElement;
   private profileDeleteBtn: HTMLButtonElement;
+  private presetSelect: HTMLSelectElement;
+  private presetNewBtn: HTMLButtonElement;
+  private presetDeleteBtn: HTMLButtonElement;
+  private presetForm: HTMLElement;
+  private presetEmpty: HTMLElement;
 
   private profiles: Profile[] = [];
   private currentProfileName = "";
-  private activeTab = "llm";
+  private renderPresets: RenderPreset[] = [];
+  private currentPresetName = "";
+  private activeTopTab = "profiles";
 
   constructor(private container: HTMLElement) {
     this.modal = container.querySelector<HTMLElement>("#settings-modal")!;
@@ -47,19 +58,28 @@ export class SettingsModal {
     this.profileSelect = container.querySelector<HTMLSelectElement>("#s-profile-select")!;
     this.profileNewBtn = container.querySelector<HTMLButtonElement>("#s-profile-new")!;
     this.profileDeleteBtn = container.querySelector<HTMLButtonElement>("#s-profile-delete")!;
+    this.presetSelect = container.querySelector<HTMLSelectElement>("#s-preset-select")!;
+    this.presetNewBtn = container.querySelector<HTMLButtonElement>("#s-preset-new")!;
+    this.presetDeleteBtn = container.querySelector<HTMLButtonElement>("#s-preset-delete")!;
+    this.presetForm = container.querySelector<HTMLElement>("#s-preset-form")!;
+    this.presetEmpty = container.querySelector<HTMLElement>("#s-preset-empty")!;
 
     this.bindEvents();
   }
 
   async open(): Promise<void> {
     try {
-      const [profiles, general] = await Promise.all([
+      const [profiles, renderPresets, general] = await Promise.all([
         rpc<Profile[]>("settings.listProfiles", {}),
+        rpc<RenderPreset[]>("settings.listRenderPresets", {}),
         rpc<{ normalizeOnSave: boolean; autoUpdate: boolean; version: string; activeProfile?: string }>("settings.get", {}),
       ]);
       this.profiles = profiles ?? [];
+      this.renderPresets = renderPresets ?? [];
       this.rebuildProfileSelect(general.activeProfile);
       this.fillFormFromCurrentProfile();
+      this.rebuildPresetSelect();
+      this.fillFormFromCurrentPreset();
       (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked =
         general.normalizeOnSave !== false;
       (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked =
@@ -74,9 +94,9 @@ export class SettingsModal {
     this.updateStatus.className = "settings-test-status";
     this.updateBtn.textContent = "Vérifier les mises à jour";
     this.updateBtn.onclick = null;
-    this.switchTab(this.activeTab);
+    this.switchTopTab(this.activeTopTab);
     this.modal.classList.add("open");
-    const firstInput = this.modal.querySelector<HTMLElement>(".settings-tab-panel.active select, .settings-tab-panel.active input, .settings-tab-panel.active button");
+    const firstInput = this.modal.querySelector<HTMLElement>(".settings-top-panel.active select, .settings-top-panel.active input");
     firstInput?.focus();
   }
 
@@ -112,9 +132,6 @@ export class SettingsModal {
     (this.form.querySelector("#s-max-iter") as HTMLInputElement).value = String(p.llm.maxIterations || 20);
     (this.form.querySelector("#s-max-tokens") as HTMLInputElement).value = String(p.llm.maxTokens || 80000);
     (this.form.querySelector("#s-system-prompt") as HTMLTextAreaElement).value = p.systemPrompt || "";
-    (this.form.querySelector("#s-render-config") as HTMLInputElement).value = p.renderConfig || "";
-    (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value = p.renderConfigUsername || "";
-    (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value = p.renderConfigPassword || "";
   }
 
   private collectCurrentProfile(): Profile {
@@ -129,33 +146,68 @@ export class SettingsModal {
         maxTokens: parseInt((this.form.querySelector("#s-max-tokens") as HTMLInputElement).value, 10) || 80000,
       },
       systemPrompt: (this.form.querySelector("#s-system-prompt") as HTMLTextAreaElement).value.trim(),
-      renderConfig: (this.form.querySelector("#s-render-config") as HTMLInputElement).value.trim(),
-      renderConfigUsername: (this.form.querySelector("#s-render-config-username") as HTMLInputElement).value.trim(),
-      renderConfigPassword: (this.form.querySelector("#s-render-config-password") as HTMLInputElement).value,
     };
   }
 
-  private switchTab(name: string): void {
-    this.activeTab = name;
-    this.modal.querySelectorAll<HTMLElement>(".settings-tab").forEach((btn) => {
-      const active = btn.dataset.tab === name;
+  private rebuildPresetSelect(): void {
+    const hasPresets = this.renderPresets.length > 0;
+    this.presetSelect.style.display = hasPresets ? "" : "none";
+    this.presetDeleteBtn.disabled = !hasPresets;
+    this.presetEmpty.classList.toggle("hidden", hasPresets);
+    this.presetForm.classList.toggle("hidden", !hasPresets);
+    if (!hasPresets) {
+      this.currentPresetName = "";
+      return;
+    }
+    this.presetSelect.innerHTML = "";
+    for (const rp of this.renderPresets) {
+      const opt = document.createElement("option");
+      opt.value = rp.name;
+      opt.textContent = rp.name;
+      this.presetSelect.appendChild(opt);
+    }
+    if (!this.renderPresets.find((rp) => rp.name === this.currentPresetName)) {
+      this.currentPresetName = this.renderPresets[0].name;
+    }
+    this.presetSelect.value = this.currentPresetName;
+  }
+
+  private fillFormFromCurrentPreset(): void {
+    const rp = this.renderPresets.find((x) => x.name === this.currentPresetName);
+    (document.getElementById("s-render-config") as HTMLInputElement).value = rp?.renderConfig ?? "";
+    (document.getElementById("s-render-config-username") as HTMLInputElement).value = rp?.renderConfigUsername ?? "";
+    (document.getElementById("s-render-config-password") as HTMLInputElement).value = rp?.renderConfigPassword ?? "";
+  }
+
+  private collectCurrentPreset(): RenderPreset {
+    return {
+      name: this.currentPresetName,
+      renderConfig: (document.getElementById("s-render-config") as HTMLInputElement).value.trim(),
+      renderConfigUsername: (document.getElementById("s-render-config-username") as HTMLInputElement).value.trim(),
+      renderConfigPassword: (document.getElementById("s-render-config-password") as HTMLInputElement).value,
+    };
+  }
+
+  private switchTopTab(name: string): void {
+    this.activeTopTab = name;
+    this.modal.querySelectorAll<HTMLElement>(".settings-top-tab").forEach((btn) => {
+      const active = btn.dataset.topTab === name;
       btn.classList.toggle("active", active);
       btn.setAttribute("aria-selected", String(active));
     });
-    this.modal.querySelectorAll<HTMLElement>(".settings-tab-panel").forEach((panel) => {
-      panel.classList.toggle("active", panel.dataset.panel === name);
+    this.modal.querySelectorAll<HTMLElement>(".settings-top-panel").forEach((panel) => {
+      panel.classList.toggle("active", panel.dataset.topPanel === name);
     });
-    // Boutons footer contextuels
-    this.testBtn.style.display = name === "llm" ? "" : "none";
-    this.updateBtn.style.display = name === "general" ? "" : "none";
+    this.testBtn.style.display = name === "profiles" ? "" : "none";
+    this.updateBtn.style.display = name === "profiles" ? "" : "none";
   }
 
   private bindEvents(): void {
     const closeBtn = this.modal.querySelector(".settings-close-btn");
     closeBtn?.addEventListener("click", () => this.close());
 
-    this.modal.querySelectorAll<HTMLButtonElement>(".settings-tab").forEach((tab) => {
-      tab.addEventListener("click", () => this.switchTab(tab.dataset.tab!));
+    this.modal.querySelectorAll<HTMLButtonElement>(".settings-top-tab").forEach((tab) => {
+      tab.addEventListener("click", () => this.switchTopTab(tab.dataset.topTab!));
     });
 
     this.modal.addEventListener("click", (e) => {
@@ -206,9 +258,6 @@ export class SettingsModal {
         name: trimmedName,
         llm: { provider: "openai", baseURL: "https://api.openai.com/v1", apiKey: "", model: "", maxIterations: 20, maxTokens: 80000 },
         systemPrompt: "",
-        renderConfig: "",
-        renderConfigUsername: "",
-        renderConfigPassword: "",
       };
       try {
         await rpc("settings.createProfile", newProfile);
@@ -219,6 +268,51 @@ export class SettingsModal {
         alert("Impossible de créer le profil : " + String(err));
       }
     });
+
+    // Changement de préset sélectionné — sauvegarder l'actuel avant de basculer
+    this.presetSelect.addEventListener("change", async () => {
+      if (this.currentPresetName) await this.saveCurrentPreset();
+      this.currentPresetName = this.presetSelect.value;
+      this.fillFormFromCurrentPreset();
+    });
+
+    // Nouveau préset
+    this.presetNewBtn.addEventListener("click", async () => {
+      const name = prompt("Nom du nouveau préset de rendu :");
+      if (!name?.trim()) return;
+      const trimmedName = name.trim();
+      if (this.renderPresets.some((rp) => rp.name === trimmedName)) {
+        alert(`Un préset nommé « ${trimmedName} » existe déjà.`);
+        return;
+      }
+      const newPreset: RenderPreset = { name: trimmedName, renderConfig: "", renderConfigUsername: "", renderConfigPassword: "" };
+      try {
+        await rpc("settings.createRenderPreset", newPreset);
+        this.renderPresets.push(newPreset);
+        this.currentPresetName = trimmedName;
+        this.rebuildPresetSelect();
+        this.fillFormFromCurrentPreset();
+      } catch (err) {
+        alert("Impossible de créer le préset : " + String(err));
+      }
+    });
+
+    // Supprimer préset
+    this.presetDeleteBtn.addEventListener("click", async () => {
+      if (this.renderPresets.length === 0) return;
+      if (!confirm(`Supprimer le préset « ${this.currentPresetName} » ?`)) return;
+      const nameToDelete = this.currentPresetName;
+      try {
+        await rpc("settings.deleteRenderPreset", { name: nameToDelete });
+        this.renderPresets = this.renderPresets.filter((rp) => rp.name !== nameToDelete);
+        this.currentPresetName = this.renderPresets[0]?.name ?? "";
+        this.rebuildPresetSelect();
+        this.fillFormFromCurrentPreset();
+      } catch (err) {
+        alert("Impossible de supprimer le préset : " + String(err));
+      }
+    });
+
 
     // Supprimer profil
     this.profileDeleteBtn.addEventListener("click", async () => {
@@ -313,12 +407,25 @@ export class SettingsModal {
     }
   }
 
+  private async saveCurrentPreset(): Promise<void> {
+    if (!this.currentPresetName) return;
+    const preset = this.collectCurrentPreset();
+    try {
+      await rpc("settings.updateRenderPreset", preset);
+      const idx = this.renderPresets.findIndex((rp) => rp.name === preset.name);
+      if (idx >= 0) this.renderPresets[idx] = { ...this.renderPresets[idx], ...preset };
+    } catch (err) {
+      console.error("saveCurrentPreset failed", err);
+    }
+  }
+
   private async save(): Promise<void> {
     const normalizeOnSave = (this.form.querySelector("#s-normalize-on-save") as HTMLInputElement).checked;
     const autoUpdate = (this.form.querySelector("#s-auto-update") as HTMLInputElement).checked;
     try {
       await Promise.all([
         this.saveCurrentProfile(),
+        this.saveCurrentPreset(),
         rpc("settings.saveGeneral", { normalizeOnSave, autoUpdate }),
       ]);
     } catch (err) {

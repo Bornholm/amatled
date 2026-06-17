@@ -21,17 +21,22 @@ type LLMSettings struct {
 	MaxTokens     int    `json:"maxTokens"`
 }
 
-// Profile contient une configuration nommée (LLM + rendu).
-// Les secrets (APIKey, RenderConfigPassword) ne sont jamais écrits dans le JSON ;
-// ils sont peuplés à l'exécution depuis le keyring système.
+// Profile contient une configuration nommée (LLM + prompt système).
+// L'APIKey n'est jamais écrite dans le JSON ; elle est peuplée depuis le keyring au runtime.
 type Profile struct {
-	Name                 string      `json:"name"`
-	LLM                  LLMSettings `json:"llm"`
-	SystemPrompt         string      `json:"systemPrompt,omitempty"`
-	RenderConfig         string      `json:"renderConfig,omitempty"`
-	RenderConfigUsername string      `json:"renderConfigUsername,omitempty"`
-	// RenderConfigPassword n'est jamais sérialisé ; peuplé depuis le keyring au runtime.
-	RenderConfigPassword string `json:"-"`
+	Name         string      `json:"name"`
+	LLM          LLMSettings `json:"llm"`
+	SystemPrompt string      `json:"systemPrompt,omitempty"`
+}
+
+// RenderPreset contient une configuration de rendu Amatl nommée.
+// RenderConfigPassword est lisible depuis le JSON (RPC entrant) mais jamais écrit sur disque
+// car Save() le vide avant sérialisation.
+type RenderPreset struct {
+	Name                 string `json:"name"`
+	RenderConfig         string `json:"renderConfig,omitempty"`
+	RenderConfigUsername string `json:"renderConfigUsername,omitempty"`
+	RenderConfigPassword string `json:"renderConfigPassword,omitempty"`
 }
 
 // Settings contient les préférences persistées de l'application.
@@ -41,6 +46,8 @@ type Settings struct {
 	AutoUpdate      *bool     `json:"autoUpdate,omitempty"`
 	Profiles        []Profile `json:"profiles,omitempty"`
 	ActiveProfile   string    `json:"activeProfile,omitempty"`
+	RenderPresets      []RenderPreset `json:"renderPresets,omitempty"`
+	ActiveRenderPreset string         `json:"activeRenderPreset,omitempty"`
 	// Champs legacy (conservés pour migration one-shot ; ignorés si Profiles est non vide)
 	RenderConfig         string      `json:"renderConfig,omitempty"`
 	RenderConfigUsername string      `json:"renderConfigUsername,omitempty"`
@@ -86,11 +93,19 @@ func (s *Settings) ResolveProfile(name string) *Profile {
 	}
 	// Fallback : profil synthétique depuis les champs legacy (avant migration)
 	return &Profile{
-		Name:                 "",
-		LLM:                  s.LLM,
-		RenderConfig:         s.RenderConfig,
-		RenderConfigUsername: s.RenderConfigUsername,
+		Name: "",
+		LLM:  s.LLM,
 	}
+}
+
+// GetRenderPreset retourne le préset de rendu ayant ce nom, ou nil.
+func (s *Settings) GetRenderPreset(name string) *RenderPreset {
+	for i := range s.RenderPresets {
+		if s.RenderPresets[i].Name == name {
+			return &s.RenderPresets[i]
+		}
+	}
+	return nil
 }
 
 // NeedsProfileMigration retourne true si les settings doivent être migrés vers les profils.
@@ -130,11 +145,13 @@ func Load() (*Settings, error) {
 // settingsForJSON est la copie sanitisée utilisée pour la sérialisation :
 // tous les champs secrets sont vidés avant écriture sur disque.
 type settingsForJSON struct {
-	LastWorkspace   string    `json:"lastWorkspace"`
-	NormalizeOnSave *bool     `json:"normalizeOnSave,omitempty"`
-	AutoUpdate      *bool     `json:"autoUpdate,omitempty"`
-	Profiles        []Profile `json:"profiles,omitempty"`
-	ActiveProfile   string    `json:"activeProfile,omitempty"`
+	LastWorkspace      string         `json:"lastWorkspace"`
+	NormalizeOnSave    *bool          `json:"normalizeOnSave,omitempty"`
+	AutoUpdate         *bool          `json:"autoUpdate,omitempty"`
+	Profiles           []Profile      `json:"profiles,omitempty"`
+	ActiveProfile      string         `json:"activeProfile,omitempty"`
+	RenderPresets      []RenderPreset `json:"renderPresets,omitempty"`
+	ActiveRenderPreset string         `json:"activeRenderPreset,omitempty"`
 }
 
 // Save persiste les settings dans le fichier de configuration utilisateur.
@@ -153,15 +170,21 @@ func (s *Settings) Save() error {
 	for i, p := range s.Profiles {
 		profiles[i] = p
 		profiles[i].LLM.APIKey = ""
-		profiles[i].RenderConfigPassword = ""
+	}
+	renderPresets := make([]RenderPreset, len(s.RenderPresets))
+	for i, rp := range s.RenderPresets {
+		renderPresets[i] = rp
+		renderPresets[i].RenderConfigPassword = ""
 	}
 
 	toSave := settingsForJSON{
-		LastWorkspace:   s.LastWorkspace,
-		NormalizeOnSave: s.NormalizeOnSave,
-		AutoUpdate:      s.AutoUpdate,
-		Profiles:        profiles,
-		ActiveProfile:   s.ActiveProfile,
+		LastWorkspace:      s.LastWorkspace,
+		NormalizeOnSave:    s.NormalizeOnSave,
+		AutoUpdate:         s.AutoUpdate,
+		Profiles:           profiles,
+		ActiveProfile:      s.ActiveProfile,
+		RenderPresets:      renderPresets,
+		ActiveRenderPreset: s.ActiveRenderPreset,
 	}
 
 	data, err := json.MarshalIndent(toSave, "", "  ")

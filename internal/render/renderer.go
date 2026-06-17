@@ -183,7 +183,7 @@ func parsePDFTimeout(s string) time.Duration {
 	return d
 }
 
-// buildMiddlewares construit la liste de middlewares communs (template + HTML).
+// buildMiddlewares construit la liste de middlewares communs (markdown + template + HTML).
 func buildMiddlewares(ctx context.Context, cfg *renderConfig, sourcePath resolver.Path) ([]pipeline.Middleware, error) {
 	layoutVars, err := loadJSONVars(ctx, cfg.HTMLLayoutVarsURL)
 	if err != nil {
@@ -196,6 +196,14 @@ func buildMiddlewares(ctx context.Context, cfg *renderConfig, sourcePath resolve
 	}
 
 	var middlewares []pipeline.Middleware
+
+	// MarkdownMiddleware : traite les directives :include, extrait le frontmatter YAML
+	// et le pose sur le payload (attrMeta) — nécessaire pour que HTMLMiddleware puisse
+	// l'injecter dans le layout (page de couverture, titre, sous-titre, etc.).
+	middlewares = append(middlewares, amatlrender.MarkdownMiddleware(
+		amatlrender.WithSourcePath(sourcePath),
+		amatlrender.WithLinkReplacements(linkReplacements),
+	))
 
 	if cfg.VarsURL != "" || cfg.TemplateLeftDelimiter != "" || cfg.TemplateRightDelimiter != "" {
 		vars, err := loadJSONVars(ctx, cfg.VarsURL)
