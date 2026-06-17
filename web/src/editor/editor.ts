@@ -6,7 +6,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { defaultKeymap, indentWithTab } from "@codemirror/commands";
 import { bus } from "../bridge";
 import { rpc } from "../bridge";
-import { darkTheme, markdownHighlight } from "./theme";
+import { getEditorTheme, EditorThemeName } from "./theme";
 import { sectionGutterExtension, setSectionEffect, SectionRange } from "./section-gutter";
 
 // Annotation pour marquer les transactions venant de Go (undo/redo/agent)
@@ -57,15 +57,19 @@ export class Editor {
   private unsubContentUpdated: (() => void) | null = null;
   private lineWrapping = true;
   private wrapCompartment = new Compartment();
+  private editorTheme: EditorThemeName = "dark";
+  private themeCompartment = new Compartment();
 
   constructor(
     container: HTMLElement,
     onDirty: (fileId: string, dirty: boolean) => void,
     onContentChange: (fileId: string, content: string) => void,
     onCursorMove: (fileId: string, line: number) => void,
-    lineWrapping = true
+    lineWrapping = true,
+    editorTheme: EditorThemeName = "dark"
   ) {
     this.lineWrapping = lineWrapping;
+    this.editorTheme = editorTheme;
     this.container = container;
     this.onDirty = onDirty;
     this.onContentChange = onContentChange;
@@ -108,8 +112,7 @@ export class Editor {
         highlightActiveLine(),
         highlightActiveLineGutter(),
         markdown(),
-        darkTheme,
-        markdownHighlight,
+        this.themeCompartment.of(getEditorTheme(this.editorTheme)),
         sectionGutterExtension,
         // Keymap personnalisé — PAS de history CM6 (géré par Go)
         keymap.of([
@@ -176,6 +179,14 @@ export class Editor {
     if (!this.view) return;
     this.view.dispatch({
       effects: this.wrapCompartment.reconfigure(enabled ? EditorView.lineWrapping : []),
+    });
+  }
+
+  setTheme(theme: EditorThemeName): void {
+    this.editorTheme = theme;
+    if (!this.view) return;
+    this.view.dispatch({
+      effects: this.themeCompartment.reconfigure(getEditorTheme(theme)),
     });
   }
 

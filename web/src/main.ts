@@ -2,6 +2,7 @@ import { rpc, bus, waitForBridge } from "./bridge";
 import { FileTree, FileEntry } from "./tree/tree";
 import { TabManager } from "./tabs/tabs";
 import { Editor } from "./editor/editor";
+import { EDITOR_THEMES, EditorThemeName } from "./editor/theme";
 import { Preview } from "./preview/preview";
 import { Chat } from "./chat/chat";
 import { SettingsModal } from "./settings/settings";
@@ -58,6 +59,9 @@ const menuExportPdf = document.getElementById("menu-export-pdf") as HTMLButtonEl
 const menuWrap = document.getElementById("menu-wrap") as HTMLButtonElement;
 const menuToggleChat = document.getElementById("menu-toggle-chat") as HTMLButtonElement;
 const menuNewChat = document.getElementById("menu-new-chat") as HTMLButtonElement;
+const menuThemeButtons = Array.from(
+  document.querySelectorAll<HTMLButtonElement>("[data-theme]")
+);
 
 
 // ── Logique de la barre de menu ───────────────────────────────────────────────
@@ -275,13 +279,31 @@ function applyWrapState(enabled: boolean): void {
 
 menuWrap.addEventListener("click", () => applyWrapState(!lineWrapping));
 
+// ── Thème de l'éditeur ───────────────────────────────────────────────────────
+const THEME_KEY = "amatled.editorTheme";
+const storedTheme = localStorage.getItem(THEME_KEY) as EditorThemeName | null;
+let editorTheme: EditorThemeName =
+  EDITOR_THEMES.some((t) => t.name === storedTheme) ? (storedTheme as EditorThemeName) : "dark";
+
+function applyEditorTheme(theme: EditorThemeName): void {
+  editorTheme = theme;
+  localStorage.setItem(THEME_KEY, theme);
+  menuThemeButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.theme === theme));
+  editor.setTheme(theme);
+}
+
+menuThemeButtons.forEach((btn) => {
+  btn.addEventListener("click", () => applyEditorTheme(btn.dataset.theme as EditorThemeName));
+});
+
 // ── Composants ────────────────────────────────────────────────────────────────
 const editor = new Editor(
   editorContent,
   (fileId, dirty) => tabs.setDirty(fileId, dirty),
   (fileId, content) => tabs.updateContent(fileId, content),
   onCursorMove,
-  lineWrapping
+  lineWrapping,
+  editorTheme
 );
 
 const chat = new Chat(chatMessagesEl, chatInputEl, chatSendBtn, chatCancelBtn);
@@ -544,8 +566,9 @@ bus.on("updater.updateApplied", (data) => {
 // ── Démarrage ─────────────────────────────────────────────────────────────────
 // État initial : aucun fichier ouvert, éditeur masqué
 editorContent.classList.add("hidden");
-// Synchroniser l'état du wrap dans le menu
+// Synchroniser l'état du wrap et du thème dans le menu
 applyWrapState(lineWrapping);
+menuThemeButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.theme === editorTheme));
 
 (async () => {
   // Attend que lorca ait bindé window.rpc avant tout appel.
