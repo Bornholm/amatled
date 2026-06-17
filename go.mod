@@ -11,10 +11,12 @@ require (
 
 require (
 	github.com/Bornholm/amatl v0.31.0
-	github.com/bornholm/genai v0.25.2
+	github.com/bornholm/genai v0.28.2
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/sqweek/dialog v0.0.0-20260123140253-64c163d53aac
 	github.com/yuin/goldmark v1.7.13
+	github.com/zalando/go-keyring v0.2.8
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -113,7 +115,7 @@ require (
 	github.com/openai/openai-go v0.1.0-beta.10 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
-	github.com/revrost/go-openrouter v1.2.0 // indirect
+	github.com/revrost/go-openrouter v1.6.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
@@ -128,7 +130,6 @@ require (
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/xrash/smetrics v0.0.0-20250705151800-55b8f293f342 // indirect
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc // indirect
-	github.com/zalando/go-keyring v0.2.8 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.9.1 // indirect
 	go.abhg.dev/goldmark/frontmatter v0.3.0 // indirect
 	go.abhg.dev/goldmark/mermaid v0.6.0 // indirect
@@ -155,5 +156,6 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260311181403-84a4fc48630c // indirect
 	google.golang.org/grpc v1.79.2 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// replace github.com/bornholm/genai => /home/wpetit/workspace/genai

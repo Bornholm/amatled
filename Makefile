@@ -10,7 +10,7 @@ build: $(BUNDLE)
 	go build -ldflags "-X main.version=$(VERSION)" -o $(BINARY) $(CMD)
 
 run: build
-	./$(BINARY)
+	./$(BINARY) --log-level debug
 
 dev:
 	npm run dev &

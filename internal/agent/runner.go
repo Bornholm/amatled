@@ -193,7 +193,6 @@ func (r *Runner) createClient(ctx context.Context) (llm.ChatCompletionClient, er
 func (r *Runner) buildTools() []llm.Tool {
 	return []llm.Tool{
 		tools.NewReadSectionTool(),
-		tools.NewReadDocumentTool(),
 		tools.NewReplaceSectionTool(),
 		tools.NewInsertBeforeSectionTool(),
 		tools.NewInsertAfterSectionTool(),
@@ -205,8 +204,8 @@ func (r *Runner) buildTools() []llm.Tool {
 }
 
 // maxInlinedSectionChars borne la taille du contenu de section inclus directement
-// dans le system prompt (cohérent avec maxDocumentChars de l'outil read_document) :
-// au-delà, le system prompt risquerait de dépasser la fenêtre de contexte du modèle.
+// dans le system prompt : au-delà, le system prompt risquerait de dépasser la
+// fenêtre de contexte du modèle.
 const maxInlinedSectionChars = 50_000
 
 // buildSystemPrompt construit le prompt système avec ToC, section active et index workspace.
@@ -237,7 +236,7 @@ Fichier actif : `)
 		rawContent := section.RawContent
 		if len(rawContent) > maxInlinedSectionChars {
 			rawContent = rawContent[:maxInlinedSectionChars] +
-				"\n\n[... contenu tronqué, utilise l'outil read_section ou read_document pour lire la suite ...]"
+				"\n\n[... contenu tronqué, utilise list_sections puis get_section_by_title pour lire la suite par section ...]"
 		}
 		sb.WriteString(rawContent)
 	} else {

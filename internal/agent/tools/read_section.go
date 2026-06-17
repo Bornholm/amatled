@@ -19,7 +19,7 @@ func NewReadSectionTool() llm.Tool {
 			}
 			section := sc.Session.ActiveSection()
 			if section == nil {
-				return llm.NewToolResult("Aucune section active. Le document entier est disponible via read_document."), nil
+				return llm.NewToolResult("Aucune section active. Utilise list_sections pour lister les sections, puis get_section_by_title pour en lire une."), nil
 			}
 			result := fmt.Sprintf("Section active : %s %s (lignes %d-%d)\n\n%s",
 				headingMarks(section.HeadingLevel),
