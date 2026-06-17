@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,7 +66,8 @@ type Bridge struct {
 
 	// File watcher
 	watchMu      sync.Mutex
-	watchedMod   map[string]time.Time // fileID → dernière modtime connue par l'app
+	watchedMod   map[string]time.Time    // fileID → dernière modtime connue par l'app
+	watchedPaths map[string]struct{}     // snapshot plat des chemins du workspace
 	watcherStop  chan struct{}
 }
 
@@ -922,7 +924,7 @@ func (b *Bridge) watcherRecord(fileID string) {
 	}
 }
 
-// startWatcher démarre le polling d'un watcher pour les fichiers ouverts.
+// startWatcher démarre le polling d'un watcher pour les fichiers ouverts et l'arborescence.
 func (b *Bridge) startWatcher() {
 	b.watchMu.Lock()
 	if b.watcherStop != nil {
@@ -930,6 +932,11 @@ func (b *Bridge) startWatcher() {
 	}
 	stop := make(chan struct{})
 	b.watcherStop = stop
+	if b.workspace != nil {
+		if files, err := b.workspace.ListFiles(); err == nil {
+			b.watchedPaths = flattenPaths(files)
+		}
+	}
 	b.watchMu.Unlock()
 
 	go func() {
@@ -946,16 +953,16 @@ func (b *Bridge) startWatcher() {
 	}()
 }
 
-// watcherPoll vérifie si un fichier ouvert a été modifié sur le disque.
+// watcherPoll vérifie si un fichier ouvert a été modifié et si l'arborescence a changé.
 func (b *Bridge) watcherPoll() {
 	if b.workspace == nil {
 		return
 	}
+
+	// ── Contenu des fichiers ouverts ──────────────────────────────────────────
 	b.watchMu.Lock()
 	snapshot := make(map[string]time.Time, len(b.watchedMod))
-	for k, v := range b.watchedMod {
-		snapshot[k] = v
-	}
+	maps.Copy(snapshot, b.watchedMod)
 	b.watchMu.Unlock()
 
 	for fileID, knownMod := range snapshot {
@@ -975,4 +982,52 @@ func (b *Bridge) watcherPoll() {
 			b.Emit("editor.fileChangedOnDisk", map[string]string{"fileId": fileID})
 		}
 	}
+
+	// ── Arborescence du workspace ─────────────────────────────────────────────
+	files, err := b.workspace.ListFiles()
+	if err != nil {
+		return
+	}
+	current := flattenPaths(files)
+
+	b.watchMu.Lock()
+	changed := !pathSetsEqual(b.watchedPaths, current)
+	if changed {
+		b.watchedPaths = current
+	}
+	b.watchMu.Unlock()
+
+	if changed {
+		slog.Debug("workspace tree changed")
+		b.Emit("workspace.treeUpdated", map[string]any{"files": files})
+	}
+}
+
+// flattenPaths extrait un ensemble plat de chemins depuis une arborescence FileEntry.
+func flattenPaths(entries []workspace.FileEntry) map[string]struct{} {
+	set := make(map[string]struct{})
+	var walk func([]workspace.FileEntry)
+	walk = func(es []workspace.FileEntry) {
+		for _, e := range es {
+			set[e.Path] = struct{}{}
+			if e.IsDir {
+				walk(e.Children)
+			}
+		}
+	}
+	walk(entries)
+	return set
+}
+
+// pathSetsEqual compare deux ensembles de chemins.
+func pathSetsEqual(a, b map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
