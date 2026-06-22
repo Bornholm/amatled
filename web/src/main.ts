@@ -366,7 +366,9 @@ const tree = new FileTree(
   async (dirPath) => {
     const name = prompt("Nom du fichier (ex: notes.md ou dossier/page.md) :");
     if (!name?.trim()) return;
-    const filePath = dirPath ? `${dirPath}/${name.trim()}` : name.trim();
+    const trimmedName = name.trim();
+    const fileName = trimmedName.endsWith('.md') ? trimmedName : `${trimmedName}.md`
+    const filePath = dirPath ? `${dirPath}/${fileName}` : fileName;
     try {
       await rpc("workspace.createFile", { path: filePath });
       const result = await rpc<OpenFileResult>("editor.openFile", { path: filePath });
