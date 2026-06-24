@@ -101,7 +101,7 @@ func listDir(rootPath, dirPath string) ([]FileEntry, error) {
 		return nil, fmt.Errorf("read dir %s: %w", dirPath, err)
 	}
 
-	var result []FileEntry
+	result := make([]FileEntry, 0)
 	for _, e := range entries {
 		name := e.Name()
 		fullPath := filepath.Join(dirPath, name)

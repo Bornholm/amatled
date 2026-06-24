@@ -10,6 +10,8 @@ const FILE_ICON_SVG = `<svg class="tree-file-icon" viewBox="0 0 12 14" fill="non
 export class FileTree {
   private container: HTMLElement;
   private activePath: string | null = null;
+  private activeDirPath: string | null = null;
+  private lastFiles: FileEntry[] | null = null;
   private onFileSelect: (entry: FileEntry) => void;
   private onFileDelete?: (entry: FileEntry) => void;
   private onCreateFile?: (dirPath: string) => void;
@@ -39,7 +41,35 @@ export class FileTree {
   setFiles(files: FileEntry[]): void {
     this.collapsedDirs = new Set();
     this.collectDirPaths(files, this.collapsedDirs);
+    this.lastFiles = files;
     this.container.innerHTML = "";
+
+    const header = document.createElement("div");
+    header.className = "tree-panel-header";
+
+    const title = document.createElement("div");
+    title.className = "panel-title tree-root-title";
+    title.textContent = "Fichiers";
+    title.style.cursor = "pointer";
+    title.addEventListener("click", () => {
+      this.activeDirPath = null;
+      this.container.querySelectorAll(".tree-dir-active").forEach((el) => {
+        el.classList.remove("tree-dir-active");
+      });
+    });
+    header.appendChild(title);
+
+    if (this.onCreateFile) {
+      const btn = document.createElement("button");
+      btn.className = "tree-create-btn";
+      btn.title = "Nouveau fichier";
+      btn.textContent = "+";
+      btn.addEventListener("click", () => this.onCreateFile!(this.activeDirPath ?? ""));
+      header.appendChild(btn);
+    }
+
+    this.container.appendChild(header);
+
     if (!files || files.length === 0) {
       const empty = document.createElement("div");
       empty.className = "tree-empty";
@@ -48,24 +78,6 @@ export class FileTree {
       return;
     }
 
-    const header = document.createElement("div");
-    header.className = "tree-panel-header";
-
-    const title = document.createElement("div");
-    title.className = "panel-title";
-    title.textContent = "Fichiers";
-    header.appendChild(title);
-
-    if (this.onCreateFile) {
-      const btn = document.createElement("button");
-      btn.className = "tree-create-btn";
-      btn.title = "Nouveau fichier";
-      btn.textContent = "+";
-      btn.addEventListener("click", () => this.onCreateFile!(""));
-      header.appendChild(btn);
-    }
-
-    this.container.appendChild(header);
     this.container.appendChild(this.renderList(files));
   }
 
@@ -112,15 +124,37 @@ export class FileTree {
         const isCollapsed = this.collapsedDirs.has(entry.path);
         inner.innerHTML = `<span class="tree-dir-arrow${isCollapsed ? " collapsed" : ""}"></span><span class="tree-dir-name">${entry.name}</span>`;
 
+        const handleDirClick = () => {
+          if (this.collapsedDirs.has(entry.path)) {
+            this.collapsedDirs.delete(entry.path);
+          } else {
+            this.collapsedDirs.add(entry.path);
+          }
+          this.activeDirPath = entry.path;
+          this.container.querySelectorAll(".tree-item-inner").forEach((el) => {
+            el.classList.remove("tree-dir-active");
+          });
+          inner.classList.add("tree-dir-active");
+          if (this.lastFiles) {
+            this.container.querySelectorAll(".tree-list").forEach((el) => el.remove());
+            this.container.appendChild(this.renderList(this.lastFiles));
+          }
+        };
+
+        inner.style.cursor = "pointer";
+        inner.addEventListener("click", handleDirClick);
+
         if (entry.children && entry.children.length > 0) {
-          inner.style.cursor = "pointer";
-          inner.addEventListener("click", () => this.toggleDir(entry.path, li));
           const childList = this.renderList(entry.children);
           if (isCollapsed) childList.style.display = "none";
           li.appendChild(inner);
           li.appendChild(childList);
         } else {
           li.appendChild(inner);
+        }
+
+        if (entry.path === this.activeDirPath) {
+          inner.classList.add("tree-dir-active");
         }
       } else {
         const item = document.createElement("div");
