@@ -911,6 +911,12 @@ select.form-control {
   background: var(--bg-tertiary);
 }
 
+.tree-dir > .tree-item-inner.tree-dir-active {
+  color: var(--fg);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+}
+
 .tree-dir-arrow {
   flex-shrink: 0;
   width: 10px;
