@@ -875,6 +875,15 @@ func (b *Bridge) handleChatSendMessage(paramsJSON string) (any, error) {
 				"data": map[string]string{"message": err.Error()},
 			})
 		}
+
+		// Si l'agent a modifié le document, proposer le panel de validation.
+		if sess.HasUncommitted() {
+			go b.Emit("validation.show", map[string]any{"fileId": params.FileID})
+		}
+
+		if err != nil && ctx.Err() == nil {
+			return
+		}
 	}()
 
 	return map[string]bool{"ok": true}, nil
