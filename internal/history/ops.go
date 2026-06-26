@@ -12,6 +12,7 @@ var (
 	ErrNothingToUndo   = errors.New("nothing to undo")
 	ErrNothingToRedo   = errors.New("nothing to redo")
 	ErrEntryNotFound   = errors.New("entry not found")
+	ErrCommittedState  = errors.New("cannot modify committed state")
 )
 
 // Source identifie l'auteur d'une modification.

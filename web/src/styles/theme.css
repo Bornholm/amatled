@@ -1118,3 +1118,129 @@ select.form-control {
 
 /* ── Utilitaire ── */
 .hidden { display: none !important; }
+
+/* ── Panel de validation / diff ── */
+#validation-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+  background: var(--bg);
+}
+
+#validation-panel.hidden {
+  display: none !important;
+}
+
+.validation-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--bg-secondary);
+}
+
+.validation-diff {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.validation-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.validation-col--original {
+  border-right: 1px solid var(--border);
+}
+
+.validation-col-header {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-muted);
+  flex-shrink: 0;
+}
+
+.validation-lines {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.validation-line {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  white-space: pre;
+  border-bottom: 1px solid transparent;
+}
+
+.validation-line-number {
+  flex-shrink: 0;
+  width: 32px;
+  text-align: right;
+  color: var(--fg-muted);
+  font-size: 11px;
+  margin-right: 8px;
+  user-select: none;
+}
+
+.validation-line-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.validation-line--removed {
+  background: rgba(244, 71, 71, 0.1);
+}
+
+.validation-line--removed .validation-line-text {
+  color: var(--error);
+  text-decoration: line-through;
+}
+
+.validation-line--unchanged {
+  color: var(--fg);
+}
+
+.validation-modified-content {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  border: none;
+  outline: none;
+  white-space: pre;
+}
+
+.validation-modified-content .validation-line {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.validation-line--added {
+  background: rgba(78, 201, 176, 0.1);
+}
+
+.validation-line--added .validation-line-text {
+  color: #6ee7b7;
+}

@@ -54,6 +54,8 @@ export class Editor {
   private onDirty: (fileId: string, dirty: boolean) => void;
   private onContentChange: (fileId: string, content: string) => void;
   private onCursorMove: (fileId: string, line: number) => void;
+  private onSaveRequest: (() => void | Promise<void>) | null = null;
+  private onSaveForced: (() => void | Promise<void>) | null = null;
   private unsubContentUpdated: (() => void) | null = null;
   private lineWrapping = true;
   private wrapCompartment = new Compartment();
@@ -136,7 +138,13 @@ export class Editor {
           {
             key: "Ctrl-s",
             mac: "Cmd-s",
-            run: () => { self.save(); return true; },
+            run: () => { self.requestSave(); return true; },
+            preventDefault: true,
+          },
+          {
+            key: "Ctrl-Shift-s",
+            mac: "Cmd-Shift-s",
+            run: () => { self.forceSave(); return true; },
             preventDefault: true,
           },
           indentWithTab,
@@ -196,6 +204,22 @@ export class Editor {
 
   getContent(): string {
     return this.view?.state.doc.toString() ?? "";
+  }
+
+  setSaveCallbacks(
+    onSaveRequest?: () => void | Promise<void>,
+    onSaveForced?: () => void | Promise<void>
+  ): void {
+    this.onSaveRequest = onSaveRequest ?? null;
+    this.onSaveForced = onSaveForced ?? null;
+  }
+
+  private requestSave(): void {
+    this.onSaveRequest?.();
+  }
+
+  private forceSave(): void {
+    this.onSaveForced?.();
   }
 
   hide(): void {
@@ -316,7 +340,7 @@ export class Editor {
     }
   }
 
-  private async save(): Promise<void> {
+  async save(): Promise<void> {
     if (!this.currentFileId) return;
     await this.flushSync();
     try {
@@ -331,7 +355,7 @@ export class Editor {
     }
   }
 
-  private async flushSync(): Promise<void> {
+  async flushSync(): Promise<void> {
     if (this.debounceTimer !== null) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;

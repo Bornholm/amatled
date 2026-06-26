@@ -85,6 +85,66 @@ func TestSessionManagerGetClose(t *testing.T) {
 	}
 }
 
+func TestSessionStagedContent(t *testing.T) {
+	mgr := editor.NewSessionManager(nil)
+	sess := mgr.Open("test.md", "initial")
+
+	original, modified := sess.StagedContent()
+	if original != "initial" {
+		t.Errorf("expected original 'initial', got %q", original)
+	}
+	if modified != "initial" {
+		t.Errorf("expected modified 'initial', got %q", modified)
+	}
+
+	if sess.HasUncommitted() {
+		t.Error("expected no uncommitted changes at opening")
+	}
+
+	time.Sleep(600 * time.Millisecond)
+	if err := sess.ApplyChanges([]editor.Change{replaceAll("initial", "modified")}, history.SourceHuman, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if !sess.HasUncommitted() {
+		t.Error("expected uncommitted changes after apply")
+	}
+
+	original, modified = sess.StagedContent()
+	if original != "initial" {
+		t.Errorf("expected original 'initial' after edit, got %q", original)
+	}
+	if modified != "modified" {
+		t.Errorf("expected modified 'modified', got %q", modified)
+	}
+
+	// Validate: changes become committed.
+	if content := sess.ValidateChanges(); content != "modified" {
+		t.Errorf("expected 'modified' after validate, got %q", content)
+	}
+
+	if sess.HasUncommitted() {
+		t.Error("expected no uncommitted changes after validate")
+	}
+
+	// Another edit then discard.
+	time.Sleep(600 * time.Millisecond)
+	if err := sess.ApplyChanges([]editor.Change{replaceAll("modified", "changed")}, history.SourceHuman, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := sess.DiscardChanges()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if content != "modified" {
+		t.Errorf("expected 'modified' after discard, got %q", content)
+	}
+	if sess.Content() != "modified" {
+		t.Errorf("expected session content 'modified' after discard, got %q", sess.Content())
+	}
+}
+
 func TestSessionSetCursorLine(t *testing.T) {
 	content := "# Hello\n\nSome text here.\n"
 	mgr := editor.NewSessionManager(nil)
