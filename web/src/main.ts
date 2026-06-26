@@ -7,6 +7,7 @@ import { Preview } from "./preview/preview";
 import { Chat } from "./chat/chat";
 import { SettingsModal } from "./settings/settings";
 import { toast } from "./toast/toast";
+import { ValidationPanel } from "./validation/validation";
 
 interface Settings {
   lastWorkspace: string;
@@ -30,6 +31,16 @@ interface SectionRef {
   rawContent: string;
 }
 
+interface StagedContentResult {
+  original: string;
+  modified: string;
+}
+
+// ── État du panel de validation ───────────────────────────────────────────────
+let validationViewBeforeOpen: "source" | "preview" = "source";
+let isClosingValidation = false;
+let validationPanel: ValidationPanel;
+
 // ── Éléments DOM ──────────────────────────────────────────────────────────────
 const btnSettings = document.getElementById("btn-settings")!;
 const mainLayout = document.getElementById("main-layout")!;
@@ -42,6 +53,7 @@ const editorEmpty = document.getElementById("editor-empty")!;
 const previewContainer = document.getElementById("preview-container")!;
 const previewFrame = document.getElementById("preview-frame") as HTMLIFrameElement;
 const previewSpinner = previewContainer.querySelector<HTMLElement>(".preview-spinner")!;
+const validationPanelEl = document.getElementById("validation-panel")!;
 const sectionNameEl = document.getElementById("section-name")!;
 const sectionIndicator = document.getElementById("section-indicator")!;
 const chatMessagesEl = document.getElementById("chat-messages")!;
@@ -234,6 +246,127 @@ fileChangedReload.addEventListener("click", async () => {
 
 fileChangedDismiss.addEventListener("click", hideFileChangedBanner);
 
+// ── Panel de validation ─────────────────────────────────────────────────────
+async function openValidationPanel(): Promise<void> {
+  if (validationPanelEl.classList.contains("hidden")) {
+    validationViewBeforeOpen = currentView;
+  }
+
+  const activeTab = tabs.getActive();
+  if (!activeTab) {
+    toast.show("Aucun fichier ouvert.", "info", 2000);
+    return;
+  }
+
+  // Flusher les changements CM6 en attente avant de récupérer le contenu.
+  await editor.flushSync().catch(() => {});
+
+  try {
+    const result = await rpc<StagedContentResult>("editor.stageChanges", {
+      fileId: activeTab.fileId,
+    });
+
+    // Si le contenu n'a pas changé, valider directement sans ouvrir le panel.
+    if (result.original === result.modified) {
+      await forceSaveCurrentFile();
+      return;
+    }
+
+    // Masquer l'éditeur / preview et afficher le panel de validation.
+    editorContent.classList.add("hidden");
+    previewContainer.classList.add("hidden");
+    editorEmpty.classList.add("hidden");
+    validationPanelEl.classList.remove("hidden");
+
+    validationPanel.open(activeTab.fileId, result.original, result.modified);
+  } catch (err) {
+    toast.show("Impossible d'ouvrir le panel de validation : " + String(err), "error");
+  }
+}
+
+async function forceSaveCurrentFile(): Promise<void> {
+  const activeTab = tabs.getActive();
+  if (!activeTab) return;
+  try {
+    await editor.save();
+    tabs.setDirty(activeTab.fileId, false);
+    toast.show("Fichier sauvegardé.", "success", 2000);
+  } catch (err) {
+    toast.show("Erreur de sauvegarde : " + String(err), "error");
+  }
+}
+
+async function confirmDiscardChanges(): Promise<boolean> {
+  return confirm("Des modifications non validées seront perdues. Continuer ?");
+}
+
+async function closeValidationPanel(restore = true): Promise<void> {
+  if (isClosingValidation) return;
+  isClosingValidation = true;
+
+  validationPanel.close();
+  validationPanelEl.classList.add("hidden");
+
+  if (restore) {
+    // Restaurer le mode d'affichage précédent
+    if (validationViewBeforeOpen === "preview") {
+      editorContent.classList.add("hidden");
+      previewContainer.classList.remove("hidden");
+      const activeTab = tabs.getActive();
+      if (activeTab) {
+        preview.render(activeTab.fileId).catch(console.error);
+      }
+    } else {
+      previewContainer.classList.add("hidden");
+      editorContent.classList.remove("hidden");
+      const activeTab = tabs.getActive();
+      if (activeTab) {
+        editor.show(activeTab.fileId, activeTab.content);
+      }
+    }
+    currentView = validationViewBeforeOpen;
+    viewBtns.forEach((b) => b.classList.toggle("active", b.dataset.view === currentView));
+  }
+
+  isClosingValidation = false;
+}
+
+async function handleValidationValidate(fileId: string): Promise<void> {
+  const activeTab = tabs.getActive();
+  if (!activeTab || activeTab.fileId !== fileId) return;
+
+  const modified = validationPanel.getModifiedContent();
+
+  try {
+    const result = await rpc<{ ok: boolean; content?: string }>("editor.validateChanges", {
+      fileId,
+      modified,
+    });
+
+    const newContent = result.content ?? modified;
+    editor.setContent(newContent);
+    tabs.updateContent(fileId, newContent);
+    tabs.setDirty(fileId, false);
+    toast.show("Modifications validées et sauvegardées.", "success", 2500);
+    await closeValidationPanel(true);
+  } catch (err) {
+    toast.show("Erreur lors de la validation : " + String(err), "error");
+  }
+}
+
+async function handleValidationCancel(fileId: string): Promise<void> {
+  try {
+    const result = await rpc<{ original: string }>("editor.discardChanges", { fileId });
+    editor.setContent(result.original);
+    tabs.updateContent(fileId, result.original);
+    tabs.setDirty(fileId, false);
+    toast.show("Modifications annulées.", "info", 2000);
+    await closeValidationPanel(true);
+  } catch (err) {
+    toast.show("Erreur lors de l'annulation : " + String(err), "error");
+  }
+}
+
 // ── Cursor tracking (debounce 100ms) ─────────────────────────────────────────
 let cursorDebounce: ReturnType<typeof setTimeout> | null = null;
 let sectionLocked = false;
@@ -380,6 +513,14 @@ const tree = new FileTree(
   },
 );
 
+validationPanel = new ValidationPanel(validationPanelEl, {
+  onValidate: handleValidationValidate,
+  onCancel: handleValidationCancel,
+});
+
+// Sauvegarde normale => panel de validation. Sauvegarde forcée => save direct.
+editor.setSaveCallbacks(openValidationPanel, forceSaveCurrentFile);
+
 // ── Section lock ──────────────────────────────────────────────────────────────
 async function toggleSectionLock(): Promise<void> {
   const activeTab = tabs.getActive();
@@ -499,8 +640,15 @@ document.addEventListener("keydown", (e) => {
     toast.show("Nouvelle conversation démarrée.", "info", 2000);
     return;
   }
-  // Escape — fermer la modale paramètres ou les menus ouverts
+  // Escape — fermer le panel de validation si ouvert ; sinon fermer menus/paramètres
   if (e.key === "Escape") {
+    if (!validationPanelEl.classList.contains("hidden")) {
+      const fileId = validationPanel.getFileId();
+      if (fileId && confirmDiscardChanges()) {
+        handleValidationCancel(fileId);
+      }
+      return;
+    }
     closeAllMenus();
     settingsModal.close();
     return;
@@ -536,6 +684,17 @@ bus.on("renderPresets.updated", () => {
 bus.on("workspace.treeUpdated", (data) => {
   const { files } = data as { files: FileEntry[] };
   tree.setFiles(files);
+});
+
+// L'agent IA demande au frontend d'ouvrir le panel de validation.
+bus.on("validation.show", async (data) => {
+  const { fileId } = data as { fileId: string };
+  const activeTab = tabs.getActive();
+  if (!activeTab || activeTab.fileId !== fileId) {
+    toast.show("Un panel de validation est disponible pour un autre fichier.", "info", 3000);
+    return;
+  }
+  await openValidationPanel();
 });
 
 bus.on("editor.fileChangedOnDisk", (data) => {

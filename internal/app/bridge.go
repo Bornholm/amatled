@@ -566,7 +566,8 @@ func (b *Bridge) handleValidateChanges(paramsJSON string) (any, error) {
 		return nil, fmt.Errorf("no workspace open")
 	}
 	var params struct {
-		FileID string `json:"fileId"`
+		FileID   string `json:"fileId"`
+		Modified string `json:"modified"`
 	}
 	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
 		return nil, fmt.Errorf("parse params: %w", err)
@@ -574,6 +575,11 @@ func (b *Bridge) handleValidateChanges(paramsJSON string) (any, error) {
 	sess, ok := b.sessions.Get(params.FileID)
 	if !ok {
 		return nil, fmt.Errorf("no session for %s", params.FileID)
+	}
+
+	// Applique le contenu modifié depuis le panel s'il diffère du contenu courant.
+	if params.Modified != "" && params.Modified != sess.Content() {
+		sess.SetContent(params.Modified)
 	}
 
 	content := sess.Content()
@@ -596,9 +602,10 @@ func (b *Bridge) handleValidateChanges(paramsJSON string) (any, error) {
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 	b.watcherRecord(params.FileID)
-	result := map[string]any{"ok": true}
+
+	result := map[string]any{"ok": true, "content": content}
 	if wasNormalized {
-		result["content"] = content
+		result["wasNormalized"] = true
 	}
 	return result, nil
 }
