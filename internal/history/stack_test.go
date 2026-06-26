@@ -191,3 +191,107 @@ func TestNothingToRedo(t *testing.T) {
 		t.Errorf("expected ErrNothingToRedo, got %v", err)
 	}
 }
+
+func TestCommit(t *testing.T) {
+	stack := history.New("v0", nil)
+
+	stack.Push(makeReplace("v0", "v1"), history.SourceHuman, "")
+	stack.Push(makeReplace("v1", "v2"), history.SourceHuman, "")
+
+	if !stack.HasUncommitted() {
+		t.Errorf("expected uncommitted changes")
+	}
+
+	stack.Commit()
+
+	if stack.HasUncommitted() {
+		t.Errorf("expected no uncommitted changes after commit")
+	}
+
+	if stack.CommittedContent() != "v2" {
+		t.Errorf("expected committed content v2, got %q", stack.CommittedContent())
+	}
+
+	content, _, err := stack.Undo()
+	if err != history.ErrNothingToUndo {
+		t.Errorf("expected ErrNothingToUndo after commit, got %v", err)
+	}
+	_ = content
+}
+
+func TestDiscard(t *testing.T) {
+	stack := history.New("v0", nil)
+
+	stack.Push(makeReplace("v0", "v1"), history.SourceHuman, "")
+	stack.Push(makeReplace("v1", "v2"), history.SourceHuman, "")
+
+	content, err := stack.Discard()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if content != "v0" {
+		t.Errorf("expected content v0 after discard, got %q", content)
+	}
+
+	if stack.Content() != "v0" {
+		t.Errorf("expected stack content v0, got %q", stack.Content())
+	}
+
+	if stack.Len() != 0 {
+		t.Errorf("expected 0 entries after discard, got %d", stack.Len())
+	}
+}
+
+func TestDiscardAfterUndo(t *testing.T) {
+	stack := history.New("v0", nil)
+
+	stack.Push(makeReplace("v0", "v1"), history.SourceHuman, "")
+	stack.Push(makeReplace("v1", "v2"), history.SourceHuman, "")
+
+	if _, _, err := stack.Undo(); err != nil {
+		t.Fatal(err)
+	}
+
+	// After undo, current content is v1 and cursor is at 1.
+	stack.Push(makeReplace("v1", "v3"), history.SourceHuman, "")
+
+	content, err := stack.Discard()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if content != "v0" {
+		t.Errorf("expected content v0 after discard, got %q", content)
+	}
+
+	if stack.Len() != 0 {
+		t.Errorf("expected 0 entries after discard, got %d", stack.Len())
+	}
+}
+
+func TestRollbackCannotCrossCommitted(t *testing.T) {
+	stack := history.New("v0", nil)
+
+	stack.Push(makeReplace("v0", "v1"), history.SourceAgent, "msg1")
+
+	// Retrieve the entry via undo then redo to restore the state.
+	_, entryV1, err := stack.Undo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stack.Redo()
+
+	// Commit the initial change.
+	stack.Commit()
+
+	// Add a new uncommitted change.
+	stack.Push(makeReplace("v1", "v2"), history.SourceAgent, "msg2")
+
+	// Rolling back to the now-committed entry should fail.
+	err = stack.RollbackTo(entryV1.ID)
+	if err != history.ErrCommittedState {
+		t.Errorf("expected ErrCommittedState, got %v", err)
+	}
+}
+

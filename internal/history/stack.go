@@ -33,20 +33,23 @@ type OnChangeFn func(content string, entry Entry, direction Direction)
 // Toute mutation doit transiter par Push.
 // Thread-safe.
 type Stack struct {
-	mu       sync.Mutex
-	entries  []Entry
-	cursor   int
-	content  string
-	capacity int
-	onChange OnChangeFn
+	mu               sync.Mutex
+	entries          []Entry
+	cursor           int
+	committedUntil   int
+	content          string
+	committedContent string
+	capacity         int
+	onChange         OnChangeFn
 }
 
 // New crée un Stack initialisé avec un contenu et un callback de notification.
 func New(initialContent string, onChange OnChangeFn) *Stack {
 	return &Stack{
-		content:  initialContent,
-		capacity: 500,
-		onChange: onChange,
+		content:          initialContent,
+		committedContent: initialContent,
+		capacity:         500,
+		onChange:         onChange,
 	}
 }
 
@@ -127,6 +130,11 @@ func (s *Stack) Push(op Op, src Source, aiMsgID string) error {
 		drop := len(s.entries) - s.capacity
 		s.entries = s.entries[drop:]
 		s.cursor -= drop
+		if s.committedUntil > drop {
+			s.committedUntil -= drop
+		} else {
+			s.committedUntil = 0
+		}
 	}
 
 	if s.onChange != nil {
@@ -140,7 +148,7 @@ func (s *Stack) Undo() (string, *Entry, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.cursor == 0 {
+	if s.cursor <= s.committedUntil {
 		return "", nil, ErrNothingToUndo
 	}
 	entry := s.entries[s.cursor-1]
@@ -194,6 +202,10 @@ func (s *Stack) RollbackTo(entryID string) error {
 		return ErrEntryNotFound
 	}
 
+	if target < s.committedUntil {
+		return ErrCommittedState
+	}
+
 	for s.cursor > target {
 		entry := s.entries[s.cursor-1]
 		newContent, err := entry.InverseOp.Apply(s.content)
@@ -221,4 +233,46 @@ func (s *Stack) Len() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.entries)
+}
+
+// Commit marque l'état courant comme committé.
+// Les entrées jusqu'au curseur actuel deviennent permanentes
+// et le contenu actuel devient le nouveau contenu de référence sur disque.
+func (s *Stack) Commit() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.committedUntil = s.cursor
+	s.committedContent = s.content
+}
+
+// Discard annule toutes les entrées non committées et restaure le contenu
+// au dernier état committé.
+func (s *Stack) Discard() (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.committedUntil > len(s.entries) {
+		s.committedUntil = len(s.entries)
+	}
+
+	s.content = s.committedContent
+	s.cursor = s.committedUntil
+	s.entries = s.entries[:s.committedUntil]
+
+	return s.content, nil
+}
+
+// HasUncommitted retourne true si des modifications non committées existent.
+func (s *Stack) HasUncommitted() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cursor > s.committedUntil
+}
+
+// CommittedContent retourne le contenu au dernier état committé.
+func (s *Stack) CommittedContent() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.committedContent
 }
