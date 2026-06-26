@@ -68,6 +68,22 @@
           </div>
           <iframe id="preview-frame" frameborder="0"></iframe>
         </div>
+        <div id="validation-panel" class="hidden">
+          <div class="validation-actions">
+            <button class="btn btn--primary" id="validation-validate" type="button">✓ Valider</button>
+            <button class="btn btn--secondary" id="validation-cancel" type="button">✕ Annuler</button>
+          </div>
+          <div class="validation-diff">
+            <div class="validation-col validation-col--original">
+              <div class="validation-col-header">Original</div>
+              <div id="validation-original" class="validation-lines"></div>
+            </div>
+            <div class="validation-col validation-col--modified">
+              <div class="validation-col-header">Modifié</div>
+              <textarea id="validation-modified" class="validation-modified-text" spellcheck="false"></textarea>
+            </div>
+          </div>
+        </div>
       </div>
       <aside id="chat-panel">
         <div id="section-indicator">
