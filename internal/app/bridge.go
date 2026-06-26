@@ -118,6 +118,10 @@ func newBridge(s *settings.Settings, version string) *Bridge {
 	b.handle("editor.openFile", b.handleEditorOpenFile)
 	b.handle("editor.applyLocalChanges", b.handleApplyLocalChanges)
 	b.handle("editor.saveFile", b.handleSaveFile)
+	b.handle("editor.stageChanges", b.handleStageChanges)
+	b.handle("editor.getStagedContent", b.handleGetStagedContent)
+	b.handle("editor.validateChanges", b.handleValidateChanges)
+	b.handle("editor.discardChanges", b.handleDiscardChanges)
 	b.handle("history.undo", b.handleUndo)
 	b.handle("history.redo", b.handleRedo)
 	// Document
@@ -507,6 +511,9 @@ func (b *Bridge) handleSaveFile(paramsJSON string) (any, error) {
 		}
 	}
 
+	// Force commit: sauvegarde directe qui ignore le workflow de validation.
+	content = sess.ValidateChanges()
+
 	if err := b.workspace.WriteFile(params.FileID, content); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)
 	}
@@ -516,6 +523,105 @@ func (b *Bridge) handleSaveFile(paramsJSON string) (any, error) {
 		result["content"] = content
 	}
 	return result, nil
+}
+
+func (b *Bridge) handleStageChanges(paramsJSON string) (any, error) {
+	if b.workspace == nil {
+		return nil, fmt.Errorf("no workspace open")
+	}
+	var params struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	sess, ok := b.sessions.Get(params.FileID)
+	if !ok {
+		return nil, fmt.Errorf("no session for %s", params.FileID)
+	}
+	original, modified := sess.StagedContent()
+	return map[string]any{"original": original, "modified": modified}, nil
+}
+
+func (b *Bridge) handleGetStagedContent(paramsJSON string) (any, error) {
+	if b.workspace == nil {
+		return nil, fmt.Errorf("no workspace open")
+	}
+	var params struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	sess, ok := b.sessions.Get(params.FileID)
+	if !ok {
+		return nil, fmt.Errorf("no session for %s", params.FileID)
+	}
+	original, modified := sess.StagedContent()
+	return map[string]any{"original": original, "modified": modified}, nil
+}
+
+func (b *Bridge) handleValidateChanges(paramsJSON string) (any, error) {
+	if b.workspace == nil {
+		return nil, fmt.Errorf("no workspace open")
+	}
+	var params struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	sess, ok := b.sessions.Get(params.FileID)
+	if !ok {
+		return nil, fmt.Errorf("no session for %s", params.FileID)
+	}
+
+	content := sess.Content()
+	wasNormalized := false
+
+	if b.settings.IsNormalizeOnSave() {
+		normalized, err := format.FormatMarkdown(content)
+		if err != nil {
+			slog.Warn("normalize on validate failed, saving raw content", "fileId", params.FileID, "err", err)
+		} else if normalized != content {
+			content = normalized
+			wasNormalized = true
+			sess.SetContent(content)
+		}
+	}
+
+	content = sess.ValidateChanges()
+
+	if err := b.workspace.WriteFile(params.FileID, content); err != nil {
+		return nil, fmt.Errorf("write file: %w", err)
+	}
+	b.watcherRecord(params.FileID)
+	result := map[string]any{"ok": true}
+	if wasNormalized {
+		result["content"] = content
+	}
+	return result, nil
+}
+
+func (b *Bridge) handleDiscardChanges(paramsJSON string) (any, error) {
+	if b.workspace == nil {
+		return nil, fmt.Errorf("no workspace open")
+	}
+	var params struct {
+		FileID string `json:"fileId"`
+	}
+	if err := json.Unmarshal([]byte(paramsJSON), &params); err != nil {
+		return nil, fmt.Errorf("parse params: %w", err)
+	}
+	sess, ok := b.sessions.Get(params.FileID)
+	if !ok {
+		return nil, fmt.Errorf("no session for %s", params.FileID)
+	}
+	content, err := sess.DiscardChanges()
+	if err != nil {
+		return nil, fmt.Errorf("discard changes: %w", err)
+	}
+	return map[string]any{"original": content}, nil
 }
 
 func (b *Bridge) handleUndo(paramsJSON string) (any, error) {

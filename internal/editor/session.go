@@ -96,6 +96,30 @@ func (s *Session) RollbackTo(entryID string) error {
 	return s.stack.RollbackTo(entryID)
 }
 
+// HasUncommitted retourne true si des modifications non committées existent.
+func (s *Session) HasUncommitted() bool {
+	return s.stack.HasUncommitted()
+}
+
+// StagedContent retourne le contenu original (dernier état committé) et le
+// contenu modifié courant.
+func (s *Session) StagedContent() (original, modified string) {
+	return s.stack.CommittedContent(), s.stack.Content()
+}
+
+// ValidateChanges marque les modifications en attente comme committées et
+// retourne le contenu courant.
+func (s *Session) ValidateChanges() string {
+	s.stack.Commit()
+	return s.stack.Content()
+}
+
+// DiscardChanges annule les modifications non committées et retourne le
+// contenu original (dernier état committé).
+func (s *Session) DiscardChanges() (string, error) {
+	return s.stack.Discard()
+}
+
 // SetCursorLine recalcule la section active pour la ligne de curseur donnée.
 // Ne met pas à jour si la section est verrouillée.
 func (s *Session) SetCursorLine(cursorLine int) (*document.SectionRef, error) {
