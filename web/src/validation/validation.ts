@@ -104,6 +104,7 @@ export class ValidationPanel {
   private currentModified = "";
   private state: StagedState | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private isSyncingScroll = false;
 
   private onValidate?: (fileId: string) => void | Promise<void>;
   private onCancel?: (fileId: string) => void | Promise<void>;
@@ -163,6 +164,17 @@ export class ValidationPanel {
         this.renderDiff();
       }, 300);
     });
+
+    // Synchronisation verticale du scroll entre Original et Modifié.
+    this.originalEl.addEventListener("scroll", () => this.syncScroll(this.originalEl, this.modifiedEl));
+    this.modifiedEl.addEventListener("scroll", () => this.syncScroll(this.modifiedEl, this.originalEl));
+  }
+
+  private syncScroll(source: HTMLElement, target: HTMLElement): void {
+    if (this.isSyncingScroll) return;
+    this.isSyncingScroll = true;
+    target.scrollTop = source.scrollTop;
+    this.isSyncingScroll = false;
   }
 
   /**
@@ -222,15 +234,19 @@ export class ValidationPanel {
   private renderModified(): void {
     // On représente chaque ligne par un <div> pour que l'édition soit naturelle
     // et que innerText produise des sauts de ligne.
+    const scrollTop = this.modifiedEl.scrollTop;
     this.modifiedEl.innerHTML = this.currentModified
       .split("\n")
       .map((line) => `<div>${escapeHtml(line)}</div>`)
       .join("");
+    this.modifiedEl.scrollTop = scrollTop;
+    this.syncScroll(this.modifiedEl, this.originalEl);
   }
 
   private renderDiff(): void {
     const diff = computeDiff(this.currentOriginal, this.currentModified);
 
+    const originalScrollTop = this.originalEl.scrollTop;
     this.originalEl.innerHTML = "";
 
     for (const line of diff) {
@@ -251,6 +267,7 @@ export class ValidationPanel {
       row.appendChild(text);
       this.originalEl.appendChild(row);
     }
+    this.originalEl.scrollTop = originalScrollTop;
 
     // Recolorer la colonne droite sans perdre le contenu éditable.
     // On garde les divs existantes et on ajuste leurs classes pour refléter le diff.
