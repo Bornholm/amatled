@@ -125,6 +125,13 @@ export class TabManager {
       el.appendChild(label);
       el.appendChild(close);
       el.addEventListener("click", () => this.switchTo(tab.path));
+      el.addEventListener("auxclick", (e) => {
+        if (e.button === 1) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.close(tab.path);
+        }
+      });
       this.tabsBar.appendChild(el);
     }
   }
