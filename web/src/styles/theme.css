@@ -1218,18 +1218,29 @@ select.form-control {
   color: var(--fg);
 }
 
-.validation-modified-text {
+.validation-modified-content {
   flex: 1;
-  width: 100%;
-  resize: none;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 0;
   background: var(--bg);
   color: var(--fg);
   border: none;
   outline: none;
-  padding: 8px;
-  font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.5;
   white-space: pre;
-  overflow: auto;
+}
+
+.validation-modified-content .validation-line {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.validation-line--added {
+  background: rgba(78, 201, 176, 0.1);
+}
+
+.validation-line--added .validation-line-text {
+  color: #6ee7b7;
 }

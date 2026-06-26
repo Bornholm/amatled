@@ -80,13 +80,22 @@ export function computeDiff(original: string, modified: string): DiffLine[] {
 }
 
 /**
+ * Escapes a text value for safe insertion into HTML content.
+ */
+function escapeHtml(text: string): string {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+/**
  * Panel de validation affichant le diff Original / Modifié et permettant
  * d'éditer le contenu modifié avant de valider ou d'annuler.
  */
 export class ValidationPanel {
   private container: HTMLElement;
   private originalEl: HTMLElement;
-  private modifiedEl: HTMLTextAreaElement;
+  private modifiedEl: HTMLElement;
   private validateBtn: HTMLButtonElement;
   private cancelBtn: HTMLButtonElement;
 
@@ -94,6 +103,7 @@ export class ValidationPanel {
   private currentOriginal = "";
   private currentModified = "";
   private state: StagedState | null = null;
+  private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   private onValidate?: (fileId: string) => void | Promise<void>;
   private onCancel?: (fileId: string) => void | Promise<void>;
@@ -102,7 +112,7 @@ export class ValidationPanel {
     this.container = container;
 
     const originalEl = this.container.querySelector<HTMLElement>("#validation-original");
-    const modifiedEl = this.container.querySelector<HTMLTextAreaElement>("#validation-modified");
+    const modifiedEl = this.container.querySelector<HTMLElement>("#validation-modified");
     const validateBtn = this.container.querySelector<HTMLButtonElement>("#validation-validate");
     const cancelBtn = this.container.querySelector<HTMLButtonElement>("#validation-cancel");
 
@@ -135,8 +145,23 @@ export class ValidationPanel {
 
     // Recalcul du diff en temps réel lors de l'édition du contenu modifié.
     this.modifiedEl.addEventListener("input", () => {
-      this.currentModified = this.modifiedEl.value;
+      this.currentModified = this.modifiedEl.innerText;
       this.renderDiff();
+
+      // Après un court délai, on reconstruit les lignes du contenteditable
+      // pour garantir une coloration cohérente après ajout/suppression de lignes.
+      if (this.debounceTimer !== null) clearTimeout(this.debounceTimer);
+      this.debounceTimer = setTimeout(() => {
+        this.debounceTimer = null;
+        // On ne reconstruit que si le nombre de lignes dans le DOM ne correspond
+        // plus au nombre de lignes du contenu modifié.
+        const currentLines = this.modifiedEl.children.length;
+        const targetLines = this.currentModified === "" ? 0 : this.currentModified.split("\n").length;
+        if (currentLines !== targetLines) {
+          this.renderModified();
+        }
+        this.renderDiff();
+      }, 300);
     });
   }
 
@@ -149,7 +174,7 @@ export class ValidationPanel {
     this.currentModified = modified;
     this.state = { fileId, original, modified };
 
-    this.modifiedEl.value = modified;
+    this.renderModified();
     this.renderDiff();
 
     this.container.classList.remove("hidden");
@@ -171,10 +196,10 @@ export class ValidationPanel {
   }
 
   /**
-   * Retourne le contenu actuel du textarea modifié.
+   * Retourne le contenu actuel de la zone d'édition modifiée.
    */
   getModifiedContent(): string {
-    return this.modifiedEl.value;
+    return this.currentModified;
   }
 
   getFileId(): string | null {
@@ -190,8 +215,17 @@ export class ValidationPanel {
    */
   setModifiedContent(content: string): void {
     this.currentModified = content;
-    this.modifiedEl.value = content;
+    this.renderModified();
     this.renderDiff();
+  }
+
+  private renderModified(): void {
+    // On représente chaque ligne par un <div> pour que l'édition soit naturelle
+    // et que innerText produise des sauts de ligne.
+    this.modifiedEl.innerHTML = this.currentModified
+      .split("\n")
+      .map((line) => `<div>${escapeHtml(line)}</div>`)
+      .join("");
   }
 
   private renderDiff(): void {
@@ -216,6 +250,18 @@ export class ValidationPanel {
       row.appendChild(lineNum);
       row.appendChild(text);
       this.originalEl.appendChild(row);
+    }
+
+    // Recolorer la colonne droite sans perdre le contenu éditable.
+    // On garde les divs existantes et on ajuste leurs classes pour refléter le diff.
+    const rightLines = diff.filter((line) => line.type === "added" || line.type === "unchanged");
+    const modifiedDivs = Array.from(this.modifiedEl.children) as HTMLDivElement[];
+
+    for (let idx = 0; idx < rightLines.length; idx++) {
+      const line = rightLines[idx];
+      const div = modifiedDivs[idx];
+      if (!div) continue;
+      div.className = `validation-line validation-line--${line.type}`;
     }
   }
 }
