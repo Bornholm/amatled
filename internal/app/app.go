@@ -8,6 +8,8 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	appkeyring "github.com/bornholm/amatled/internal/keyring"
 	"github.com/bornholm/amatled/internal/settings"
@@ -20,9 +22,13 @@ type App struct {
 	bridge           *Bridge
 	version          string
 	initialWorkspace string
+	initialFile      string
 }
 
-func New(version, initialWorkspace string) *App {
+// New crée une nouvelle instance de l'application. Si initialPath désigne un
+// fichier, le dossier parent est utilisé comme workspace et le chemin relatif du
+// fichier est conservé pour l'ouvrir automatiquement au démarrage.
+func New(version, initialPath string) *App {
 	s, err := settings.Load()
 	if err != nil {
 		slog.Warn("failed to load settings", "err", err)
@@ -33,10 +39,14 @@ func New(version, initialWorkspace string) *App {
 			slog.Warn("profile migration failed", "err", err)
 		}
 	}
+
+	initialWorkspace, initialFile := resolveInitialWorkspace(initialPath)
+
 	return &App{
 		bridge:           newBridge(s, version),
 		version:          version,
 		initialWorkspace: initialWorkspace,
+		initialFile:      initialFile,
 	}
 }
 
@@ -63,6 +73,40 @@ func migrateSettingsToProfiles(s *settings.Settings) error {
 	return s.Save()
 }
 
+// resolveInitialWorkspace détermine le workspace et éventuellement le fichier
+// initial à ouvrir. Si initialPath est un fichier, le dossier parent devient le
+// workspace et le chemin relatif du fichier est renvoyé.
+func resolveInitialWorkspace(initialPath string) (workspace, file string) {
+	if initialPath == "" {
+		return "", ""
+	}
+
+	info, err := os.Stat(initialPath)
+	if err != nil {
+		slog.Warn("cannot stat initial path, treating as workspace", "path", initialPath, "err", err)
+		return initialPath, ""
+	}
+
+	if info.IsDir() {
+		return initialPath, ""
+	}
+
+	absFile, err := filepath.Abs(initialPath)
+	if err != nil {
+		slog.Warn("cannot resolve initial file path", "path", initialPath, "err", err)
+		return filepath.Dir(initialPath), ""
+	}
+
+	workspaceDir := filepath.Dir(absFile)
+	relFile, err := filepath.Rel(workspaceDir, absFile)
+	if err != nil {
+		slog.Warn("cannot compute relative file path", "file", absFile, "workspace", workspaceDir, "err", err)
+		return workspaceDir, ""
+	}
+
+	return workspaceDir, relFile
+}
+
 func (a *App) Bridge() *Bridge {
 	return a.bridge
 }
@@ -81,6 +125,7 @@ func (a *App) Run(webFS embed.FS) error {
 	ui, err := lorca.New(
 		lorca.WithURL(url),
 		lorca.WithWindowSize(1280, 800),
+		lorca.WithAdditionalCustomArgs("--class=amatled", "--name=amatled"),
 	)
 	if err != nil {
 		return fmt.Errorf("create lorca UI: %w", err)
@@ -119,6 +164,19 @@ func (a *App) Run(webFS embed.FS) error {
 			if err != nil {
 				slog.Warn("failed to open workspace", "path", workspaceToOpen, "err", err)
 				return
+			}
+			if a.initialFile != "" {
+				if resultMap, ok := result.(map[string]any); ok {
+					resultMap["initialFile"] = a.initialFile
+					openResult, openErr := a.bridge.handleEditorOpenFile(
+						fmt.Sprintf(`{"path":%q}`, a.initialFile),
+					)
+					if openErr != nil {
+						slog.Warn("failed to open initial file", "path", a.initialFile, "err", openErr)
+					} else {
+						resultMap["initialFileContent"] = openResult
+					}
+				}
 			}
 			a.bridge.Emit("workspace.opened", result)
 		}()

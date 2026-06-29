@@ -94,6 +94,24 @@ export class FileTree {
     });
   }
 
+  // Développe tous les dossiers parents du chemin donné et met en surbrillance
+  // le fichier correspondant. Utilisé à l'ouverture d'un fichier via clic droit.
+  expandToPath(path: string): void {
+    const parts = path.split("/");
+    let currentPath = "";
+    for (let i = 0; i < parts.length - 1; i++) {
+      currentPath = currentPath ? `${currentPath}/${parts[i]}` : parts[i];
+      this.collapsedDirs.delete(currentPath);
+    }
+
+    if (this.lastFiles) {
+      this.container.querySelectorAll(".tree-list").forEach((el) => el.remove());
+      this.container.appendChild(this.renderList(this.lastFiles));
+    }
+
+    this.setActivePath(path);
+  }
+
   private toggleDir(dirKey: string, li: HTMLElement): void {
     const childList = li.querySelector(":scope > .tree-list") as HTMLElement | null;
     const arrow = li.querySelector(":scope > .tree-item-inner .tree-dir-arrow") as HTMLElement | null;
