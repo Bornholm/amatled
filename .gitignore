@@ -2,3 +2,4 @@ bin/
 node_modules/
 web/dist/bundle.js
 /.amatled
+dist/

@@ -16,6 +16,7 @@ builds:
       - CGO_ENABLED=1
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -29,6 +30,7 @@ builds:
       - CGO_ENABLED=0
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
       - -s -w -X main.version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
@@ -43,6 +45,46 @@ archives:
     ids: [amatled-windows]
     name_template: "amatled_{{.Version}}_{{.Os}}_{{.Arch}}"
     formats: [zip]
+
+nfpms:
+  - id: amatled-linux
+    package_name: amatled
+    ids: [amatled-linux]
+    file_name_template: "amatled_{{.Version}}_{{.Os}}_{{.Arch}}"
+    vendor: "Amatled"
+    homepage: "https://github.com/bornholm/amatled"
+    maintainer: "Amatled"
+    description: "Éditeur Markdown desktop assisté par IA"
+    license: "MIT"
+    bindir: /usr/bin
+    formats:
+      - archlinux
+    dependencies:
+      - webkit2gtk-4.1
+      - gtk3
+    contents:
+      - src: ./misc/packaging/linux/amatled.desktop
+        dst: /usr/share/applications/amatled.desktop
+      - src: ./web/favicon.svg
+        dst: /usr/share/icons/hicolor/scalable/apps/amatled.svg
+      - src: ./misc/packaging/linux/amatled.xml
+        dst: /usr/share/mime/packages/amatled.xml
+      - src: ./misc/packaging/icons/16x16/amatled.png
+        dst: /usr/share/icons/hicolor/16x16/apps/amatled.png
+      - src: ./misc/packaging/icons/24x24/amatled.png
+        dst: /usr/share/icons/hicolor/24x24/apps/amatled.png
+      - src: ./misc/packaging/icons/32x32/amatled.png
+        dst: /usr/share/icons/hicolor/32x32/apps/amatled.png
+      - src: ./misc/packaging/icons/48x48/amatled.png
+        dst: /usr/share/icons/hicolor/48x48/apps/amatled.png
+      - src: ./misc/packaging/icons/64x64/amatled.png
+        dst: /usr/share/icons/hicolor/64x64/apps/amatled.png
+      - src: ./misc/packaging/icons/128x128/amatled.png
+        dst: /usr/share/icons/hicolor/128x128/apps/amatled.png
+      - src: ./misc/packaging/icons/256x256/amatled.png
+        dst: /usr/share/icons/hicolor/256x256/apps/amatled.png
+      - src: ./misc/packaging/icons/512x512/amatled.png
+        dst: /usr/share/icons/hicolor/512x512/apps/amatled.png
 
 checksum:
   name_template: "checksums.txt"

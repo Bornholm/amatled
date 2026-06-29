@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=Amatled
+Comment=Éditeur Markdown desktop assisté par IA
+Exec=amatled %f
+Icon=amatled
+Type=Application
+Categories=Office;TextEditor;
+MimeType=inode/directory;text/markdown;text/plain;
+Terminal=false
+StartupNotify=true
+StartupWMClass=amatled
+Keywords=markdown;editor;ia;ai;markdown editor;

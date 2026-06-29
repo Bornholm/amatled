@@ -28,6 +28,19 @@ make dev
 
 # Lancer sur un workspace spécifique
 ./bin/amatled /chemin/vers/workspace
+
+# Lancer en ouvrant directement un fichier Markdown
+./bin/amatled /chemin/vers/document.md
+```
+
+### Packaging
+
+```bash
+# Générer le paquet Pacman .pkg.tar.zst dans un conteneur Arch Linux
+make package
+
+# Installer le raccourci bureau localement (sans paquet)
+make install-desktop
 ```
 
 ### Tests et lint
