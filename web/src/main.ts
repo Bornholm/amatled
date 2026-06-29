@@ -16,6 +16,8 @@ interface Settings {
 interface WorkspaceResult {
   files: FileEntry[];
   rootPath: string;
+  initialFile?: string;
+  initialFileContent?: { content: string; fileId: string };
 }
 
 interface OpenFileResult {
@@ -470,22 +472,30 @@ const tabs = new TabManager(
   }
 );
 
+// ── Ouverture d'un fichier dans l'éditeur ─────────────────────────────────────
+async function openFileInEditor(filePath: string): Promise<void> {
+  const existingTab = tabs.getTab(filePath);
+  if (existingTab) {
+    tabs.switchTo(filePath);
+    tree.expandToPath(filePath);
+    return;
+  }
+
+  try {
+    const result = await rpc<OpenFileResult>("editor.openFile", { path: filePath });
+    const fileName = filePath.split("/").pop() ?? filePath;
+    tabs.open(filePath, fileName, result.content);
+    tree.expandToPath(filePath);
+  } catch (err) {
+    console.error("editor.openFile failed", err);
+    toast.show("Impossible d'ouvrir le fichier : " + String(err), "error");
+  }
+}
+
 const tree = new FileTree(
   treeFiles,
   async (entry) => {
-    const existingTab = tabs.getTab(entry.path);
-    if (existingTab) {
-      tabs.switchTo(entry.path);
-      return;
-    }
-    try {
-      const result = await rpc<OpenFileResult>("editor.openFile", {
-        path: entry.path,
-      });
-      tabs.open(entry.path, entry.name, result.content);
-    } catch (err) {
-      console.error("editor.openFile failed", err);
-    }
+    await openFileInEditor(entry.path);
   },
   async (entry) => {
     if (!confirm(`Supprimer « ${entry.name} » ?`)) return;
@@ -549,6 +559,9 @@ sectionIndicator.addEventListener("click", toggleSectionLock);
 // ── Ouverture d'un workspace ──────────────────────────────────────────────────
 function applyWorkspace(result: WorkspaceResult): void {
   tree.setFiles(result.files);
+  if (result.initialFile) {
+    requestAnimationFrame(() => tree.expandToPath(result.initialFile!));
+  }
   const parts = result.rootPath.split(/[\\/]/);
   const name = parts[parts.length - 1] || result.rootPath;
   document.title = `${name} — AmatlEd`;
@@ -659,6 +672,10 @@ document.addEventListener("keydown", (e) => {
 bus.on("workspace.opened", (data) => {
   const result = data as WorkspaceResult & { activeProfile?: string; activeRenderPreset?: string };
   applyWorkspace(result);
+  if (result.initialFile && result.initialFileContent) {
+    const fileName = result.initialFile.split("/").pop() ?? result.initialFile;
+    tabs.open(result.initialFile, fileName, result.initialFileContent.content);
+  }
   refreshProfileSelector(result.activeProfile);
   refreshRenderPresetSelector(result.activeRenderPreset ?? "");
 });

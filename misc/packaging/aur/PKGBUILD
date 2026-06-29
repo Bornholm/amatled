@@ -1,0 +1,33 @@
+# Maintainer: Amatled Team <contact@example.com>
+# Ce PKGBUILD est fourni à titre d'exemple. La version doit être ajustée lors de
+# la publication sur l'AUR.
+pkgname=amatled
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="Éditeur Markdown desktop assisté par IA"
+arch=('x86_64')
+url="https://github.com/bornholm/amatled"
+license=('MIT')
+depends=('webkit2gtk-4.1' 'gtk3')
+makedepends=('go' 'nodejs' 'npm' 'git')
+source=("https://github.com/bornholm/amatled/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "${srcdir}/amatled-${pkgver}"
+    npm ci
+    npm run build
+    go build \
+        -ldflags "-s -w -X main.version=v${pkgver}" \
+        -o amatled \
+        ./cmd/amatled
+}
+
+package() {
+    cd "${srcdir}/amatled-${pkgver}"
+
+    install -Dm755 amatled "${pkgdir}/usr/bin/amatled"
+    install -Dm644 misc/packaging/linux/amatled.desktop "${pkgdir}/usr/share/applications/amatled.desktop"
+    install -Dm644 web/favicon.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/amatled.svg"
+    install -Dm644 misc/packaging/linux/amatled.xml "${pkgdir}/usr/share/mime/packages/amatled.xml"
+}
