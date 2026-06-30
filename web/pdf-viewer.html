@@ -9,9 +9,73 @@
     #viewer { display: flex; flex-direction: column; align-items: center; padding: 8px; gap: 8px; min-height: 100%; }
     .page-canvas { display: block; box-shadow: 0 2px 8px rgba(0,0,0,.5); background: white; max-width: 100%; }
     #status { color: #ccc; font-family: sans-serif; padding: 2rem; font-size: 14px; }
+
+    #zoom-toolbar {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(40, 40, 40, 0.85);
+      border-radius: 6px;
+      padding: 4px 6px;
+      z-index: 1000;
+      box-shadow: 0 2px 8px rgba(0,0,0,.4);
+    }
+    #zoom-toolbar button {
+      background: none;
+      border: none;
+      color: #ccc;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-family: sans-serif;
+      font-size: 14px;
+      line-height: 1;
+      transition: background 0.15s, color 0.15s;
+    }
+    #zoom-toolbar button:hover {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+    }
+    #zoom-toolbar button:active {
+      background: rgba(255,255,255,.25);
+    }
+    #zoom-toolbar .zoom-label {
+      color: #aaa;
+      font-family: sans-serif;
+      font-size: 12px;
+      min-width: 40px;
+      text-align: center;
+      cursor: default;
+    }
+    #zoom-toolbar .zoom-sep {
+      width: 1px;
+      height: 16px;
+      background: rgba(255,255,255,.15);
+      margin: 0 2px;
+    }
   </style>
 </head>
 <body>
+  <div id="zoom-toolbar">
+    <button id="zoom-out" title="Dézoomer">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="2" y1="7" x2="12" y2="7"/>
+      </svg>
+    </button>
+    <span class="zoom-label" id="zoom-label">100%</span>
+    <button id="zoom-in" title="Zoomer">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="7" y1="2" x2="7" y2="12"/>
+        <line x1="2" y1="7" x2="12" y2="7"/>
+      </svg>
+    </button>
+    <div class="zoom-sep"></div>
+    <button id="zoom-reset" title="Réinitialiser à 100%">100%</button>
+  </div>
+
   <div id="viewer">
     <div id="status">Chargement…</div>
   </div>
@@ -21,29 +85,68 @@
 
     const viewer = document.getElementById('viewer');
     const status = document.getElementById('status');
+    const zoomLabel = document.getElementById('zoom-label');
+    const zoomIn = document.getElementById('zoom-in');
+    const zoomOut = document.getElementById('zoom-out');
+    const zoomReset = document.getElementById('zoom-reset');
+
+    const MIN_SCALE = 0.25;
+    const MAX_SCALE = 4.0;
+    const SCALE_STEP = 0.25;
+
+    let pdfDoc = null;
+    let currentScale = parseFloat(sessionStorage.getItem('pdf-zoom')) || 1.0;
+
+    function updateZoomLabel() {
+      zoomLabel.textContent = Math.round(currentScale * 100) + '%';
+    }
+
+    async function renderPages() {
+      if (!pdfDoc) return;
+      viewer.innerHTML = '';
+
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const viewport = page.getViewport({ scale: currentScale });
+
+        const canvas = document.createElement('canvas');
+        canvas.className = 'page-canvas';
+        canvas.width = viewport.width;
+        canvas.height = viewport.height;
+        viewer.appendChild(canvas);
+
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      }
+    }
+
+    function setZoom(newScale) {
+      currentScale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, newScale));
+      sessionStorage.setItem('pdf-zoom', currentScale);
+      updateZoomLabel();
+      renderPages();
+    }
+
+    zoomIn.addEventListener('click', () => setZoom(currentScale + SCALE_STEP));
+    zoomOut.addEventListener('click', () => setZoom(currentScale - SCALE_STEP));
+    zoomReset.addEventListener('click', () => setZoom(1.0));
+
+    document.addEventListener('wheel', (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? -SCALE_STEP : SCALE_STEP;
+        setZoom(currentScale + delta);
+      }
+    }, { passive: false });
 
     const fileId = new URLSearchParams(location.search).get('fileId');
     if (!fileId) {
       status.textContent = 'Aucun fichier spécifié.';
     } else {
       try {
-        const pdf = await pdfjsLib.getDocument(`/api/pdf?fileId=${encodeURIComponent(fileId)}`).promise;
+        pdfDoc = await pdfjsLib.getDocument(`/api/pdf?fileId=${encodeURIComponent(fileId)}`).promise;
         status.remove();
-
-        const scale = (viewer.clientWidth - 16) / 595; // A4 width en pt ~595
-
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale });
-
-          const canvas = document.createElement('canvas');
-          canvas.className = 'page-canvas';
-          canvas.width = viewport.width;
-          canvas.height = viewport.height;
-          viewer.appendChild(canvas);
-
-          await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-        }
+        updateZoomLabel();
+        await renderPages();
         window.parent.postMessage({ type: 'pdf-rendered' }, '*');
       } catch (err) {
         status.textContent = 'Erreur : ' + err.message;

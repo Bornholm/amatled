@@ -207,6 +207,10 @@ async function switchView(view: "source" | "preview"): Promise<void> {
     previewContainer.classList.add("hidden");
     editorContent.classList.remove("hidden");
     preview.clear();
+    const activeTab = tabs.getActive();
+    if (activeTab) {
+      editor.show(activeTab.fileId, activeTab.content);
+    }
   }
 }
 
@@ -701,6 +705,15 @@ bus.on("renderPresets.updated", () => {
 bus.on("workspace.treeUpdated", (data) => {
   const { files } = data as { files: FileEntry[] };
   tree.setFiles(files);
+});
+
+bus.on("pdf-error", (data) => {
+  const { fileId, error, path } = data as { fileId: string; error: string; path: string };
+  const activeTab = tabs.getActive();
+  if (activeTab?.fileId === fileId) {
+    const msg = path ? `Ressource manquante : ${path}` : `Erreur de rendu : ${error}`;
+    toast.show(msg, "error");
+  }
 });
 
 // L'agent IA demande au frontend d'ouvrir le panel de validation.
