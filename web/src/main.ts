@@ -207,6 +207,10 @@ async function switchView(view: "source" | "preview"): Promise<void> {
     previewContainer.classList.add("hidden");
     editorContent.classList.remove("hidden");
     preview.clear();
+    const activeTab = tabs.getActive();
+    if (activeTab) {
+      editor.show(activeTab.fileId, activeTab.content);
+    }
   }
 }
 
