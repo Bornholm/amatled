@@ -724,6 +724,17 @@ func (b *Bridge) GetCachedPDF(fileID string) ([]byte, bool) {
 	return pdf, ok
 }
 
+func extractMissingPath(errMsg string) string {
+	if idx := strings.Index(errMsg, "open "); idx != -1 {
+		rest := errMsg[idx+5:]
+		if end := strings.Index(rest, ":"); end != -1 {
+			return strings.TrimSpace(rest[:end])
+		}
+		return strings.TrimSpace(rest)
+	}
+	return ""
+}
+
 func (b *Bridge) handleDocumentRenderPDF(paramsJSON string) (any, error) {
 	var params struct {
 		FileID string `json:"fileId"`
@@ -741,21 +752,49 @@ func (b *Bridge) handleDocumentRenderPDF(paramsJSON string) (any, error) {
 		renderConfigUsername = rp.RenderConfigUsername
 		renderConfigPassword = rp.RenderConfigPassword
 	}
-	pdf, err := render.RenderPDF(
-		context.Background(),
-		[]byte(sess.Content()),
-		sess.FileID,
-		b.workspaceRoot,
-		renderConfig,
-		renderConfigUsername,
-		renderConfigPassword,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("render pdf: %w", err)
-	}
-	b.pdfMu.Lock()
-	b.pdfCache[params.FileID] = pdf
-	b.pdfMu.Unlock()
+
+	content := sess.Content()
+	fileID := sess.FileID
+	workspaceRoot := b.workspaceRoot
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errMsg := fmt.Sprintf("panic during render: %v", r)
+				b.Emit("pdf-error", map[string]any{
+					"fileId": params.FileID,
+					"error":  errMsg,
+					"path":   extractMissingPath(errMsg),
+				})
+			}
+		}()
+
+		pdf, err := render.RenderPDF(
+			context.Background(),
+			[]byte(content),
+			fileID,
+			workspaceRoot,
+			renderConfig,
+			renderConfigUsername,
+			renderConfigPassword,
+		)
+		b.pdfMu.Lock()
+		if err == nil {
+			b.pdfCache[params.FileID] = pdf
+		}
+		b.pdfMu.Unlock()
+
+		if err != nil {
+			b.Emit("pdf-error", map[string]any{
+				"fileId": params.FileID,
+				"error":  err.Error(),
+				"path":   extractMissingPath(err.Error()),
+			})
+		} else {
+			b.Emit("pdf-ready", map[string]any{"fileId": params.FileID})
+		}
+	}()
+
 	return map[string]bool{"ok": true}, nil
 }
 

@@ -703,6 +703,15 @@ bus.on("workspace.treeUpdated", (data) => {
   tree.setFiles(files);
 });
 
+bus.on("pdf-error", (data) => {
+  const { fileId, error, path } = data as { fileId: string; error: string; path: string };
+  const activeTab = tabs.getActive();
+  if (activeTab?.fileId === fileId) {
+    const msg = path ? `Ressource manquante : ${path}` : `Erreur de rendu : ${error}`;
+    toast.show(msg, "error");
+  }
+});
+
 // L'agent IA demande au frontend d'ouvrir le panel de validation.
 bus.on("validation.show", async (data) => {
   const { fileId } = data as { fileId: string };
