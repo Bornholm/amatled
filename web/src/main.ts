@@ -51,6 +51,7 @@ const profileBar = document.getElementById("profile-bar")!;
 const treeFiles = document.getElementById("tree-files")!;
 const tabsBar = document.getElementById("tabs-bar")!;
 const editorContent = document.getElementById("editor-content")!;
+const editorToolbar = document.getElementById("editor-toolbar")!;
 const editorEmpty = document.getElementById("editor-empty")!;
 const previewContainer = document.getElementById("preview-container")!;
 const previewFrame = document.getElementById("preview-frame") as HTMLIFrameElement;
@@ -280,6 +281,7 @@ async function openValidationPanel(): Promise<void> {
 
     // Masquer l'éditeur / preview et afficher le panel de validation.
     editorContent.classList.add("hidden");
+    editorToolbar.classList.add("hidden");
     previewContainer.classList.add("hidden");
     editorEmpty.classList.add("hidden");
     validationPanelEl.classList.remove("hidden");
@@ -325,6 +327,7 @@ async function closeValidationPanel(restore = true): Promise<void> {
     } else {
       previewContainer.classList.add("hidden");
       editorContent.classList.remove("hidden");
+      editorToolbar.classList.remove("hidden");
       const activeTab = tabs.getActive();
       if (activeTab) {
         editor.show(activeTab.fileId, activeTab.content);
@@ -438,6 +441,7 @@ menuThemeButtons.forEach((btn) => {
 // ── Composants ────────────────────────────────────────────────────────────────
 const editor = new Editor(
   editorContent,
+  editorToolbar,
   (fileId, dirty) => tabs.setDirty(fileId, dirty),
   (fileId, content) => tabs.updateContent(fileId, content),
   onCursorMove,
@@ -456,10 +460,12 @@ const tabs = new TabManager(
     menuExportPdf.disabled = false;
     if (currentView === "preview") {
       editorContent.classList.add("hidden");
+      editorToolbar.classList.add("hidden");
       previewContainer.classList.remove("hidden");
       preview.render(tab.fileId).catch(console.error);
     } else {
       editorContent.classList.remove("hidden");
+      editorToolbar.classList.remove("hidden");
       previewContainer.classList.add("hidden");
       editor.show(tab.fileId, tab.content);
     }
@@ -470,6 +476,7 @@ const tabs = new TabManager(
   () => {
     editor.hide();
     editorContent.classList.add("hidden");
+    editorToolbar.classList.add("hidden");
     editorEmpty.classList.remove("hidden");
     menuExportPdf.disabled = true;
     chat.setActiveFile(null);
@@ -757,6 +764,7 @@ bus.on("updater.updateApplied", (data) => {
 // ── Démarrage ─────────────────────────────────────────────────────────────────
 // État initial : aucun fichier ouvert, éditeur masqué
 editorContent.classList.add("hidden");
+editorToolbar.classList.add("hidden");
 // Synchroniser l'état du wrap et du thème dans le menu
 applyWrapState(lineWrapping);
 menuThemeButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.theme === editorTheme));
