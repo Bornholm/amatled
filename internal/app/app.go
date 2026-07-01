@@ -125,7 +125,7 @@ func (a *App) Run(webFS embed.FS) error {
 	ui, err := lorca.New(
 		lorca.WithURL(url),
 		lorca.WithWindowSize(1280, 800),
-		lorca.WithAdditionalCustomArgs("--class=amatled", "--name=amatled"),
+		lorca.WithAdditionalCustomArgs("--class=amatled", "--app=amatled"),
 	)
 	if err != nil {
 		return fmt.Errorf("create lorca UI: %w", err)
