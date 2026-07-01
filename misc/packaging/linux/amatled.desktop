@@ -8,5 +8,5 @@ Categories=Office;TextEditor;
 MimeType=inode/directory;text/markdown;text/plain;
 Terminal=false
 StartupNotify=true
-StartupWMClass=amatled
+StartupWMClass=chrome-127.0.0.1__-Default
 Keywords=markdown;editor;ia;ai;markdown editor;

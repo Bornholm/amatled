@@ -114,14 +114,6 @@ Le paquet installe :
 Icônes :
 
 - `/usr/share/icons/hicolor/scalable/apps/amatled.svg`
-- `/usr/share/icons/hicolor/16x16/apps/amatled.png`
-- `/usr/share/icons/hicolor/24x24/apps/amatled.png`
-- `/usr/share/icons/hicolor/32x32/apps/amatled.png`
-- `/usr/share/icons/hicolor/48x48/apps/amatled.png`
-- `/usr/share/icons/hicolor/64x64/apps/amatled.png`
-- `/usr/share/icons/hicolor/128x128/apps/amatled.png`
-- `/usr/share/icons/hicolor/256x256/apps/amatled.png`
-- `/usr/share/icons/hicolor/512x512/apps/amatled.png`
 
 ---
 

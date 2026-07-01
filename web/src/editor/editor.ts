@@ -8,6 +8,16 @@ import { bus } from "../bridge";
 import { rpc } from "../bridge";
 import { getEditorTheme, EditorThemeName } from "./theme";
 import { sectionGutterExtension, setSectionEffect, SectionRange } from "./section-gutter";
+import { Toolbar } from "./toolbar";
+import {
+  wrapSelection,
+  insertAtLineStart,
+  insertMultilineBlock,
+  insertLink,
+  insertImage,
+  insertTableCmd,
+  insertHr,
+} from "./formatting";
 
 // Annotation pour marquer les transactions venant de Go (undo/redo/agent)
 // afin d'éviter les boucles de synchronisation.
@@ -46,6 +56,7 @@ function makeWholeDocChange(oldContent: string, newContent: string): Change {
 
 export class Editor {
   private container: HTMLElement;
+  private toolbar: Toolbar;
   private view: EditorView | null = null;
   private currentFileId: string | null = null;
   private pendingOldContent: string | null = null;
@@ -64,6 +75,7 @@ export class Editor {
 
   constructor(
     container: HTMLElement,
+    toolbarContainer: HTMLElement,
     onDirty: (fileId: string, dirty: boolean) => void,
     onContentChange: (fileId: string, content: string) => void,
     onCursorMove: (fileId: string, line: number) => void,
@@ -73,6 +85,7 @@ export class Editor {
     this.lineWrapping = lineWrapping;
     this.editorTheme = editorTheme;
     this.container = container;
+    this.toolbar = new Toolbar(toolbarContainer);
     this.onDirty = onDirty;
     this.onContentChange = onContentChange;
     this.onCursorMove = onCursorMove;
@@ -147,6 +160,14 @@ export class Editor {
             run: () => { self.forceSave(); return true; },
             preventDefault: true,
           },
+          { key: "Ctrl-b", mac: "Cmd-b", run: () => { wrapSelection(self.view!, "**", "**", "texte"); return true; }, preventDefault: true },
+          { key: "Ctrl-i", mac: "Cmd-i", run: () => { wrapSelection(self.view!, "*", "*", "texte"); return true; }, preventDefault: true },
+          { key: "Ctrl-k", mac: "Cmd-k", run: () => { insertLink(self.view!); return true; }, preventDefault: true },
+          { key: "Ctrl-1", mac: "Cmd-1", run: () => { insertAtLineStart(self.view!, "# "); return true; }, preventDefault: true },
+          { key: "Ctrl-2", mac: "Cmd-2", run: () => { insertAtLineStart(self.view!, "## "); return true; }, preventDefault: true },
+          { key: "Ctrl-3", mac: "Cmd-3", run: () => { insertAtLineStart(self.view!, "### "); return true; }, preventDefault: true },
+          { key: "Ctrl-e", mac: "Cmd-e", run: () => { wrapSelection(self.view!, "`", "`", "code"); return true; }, preventDefault: true },
+          { key: "Ctrl-Shift-c", run: () => { insertMultilineBlock(self.view!, "```\n\n```"); return true; }, preventDefault: true },
           indentWithTab,
           ...defaultKeymap,
         ]),
@@ -170,6 +191,7 @@ export class Editor {
     });
 
     this.view = new EditorView({ state, parent: this.container });
+    this.toolbar.setEditorView(this.view);
     this.view.focus();
   }
 
